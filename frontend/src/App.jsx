@@ -1667,7 +1667,9 @@ If it didn’t open, please contact us via WhatsApp.
       }
     } catch (error) {
       setAdminError('Failed to regenerate public titles.');
-    }\n}\n\n  const getAdminSourceBreakdown = () => {
+    }
+
+  const getAdminSourceBreakdown = () => {
     const counts = {};
     adminOrders.forEach(order => {
       const source = (order.source && order.source.trim()) || 'Unknown';
@@ -4682,5 +4684,9 @@ If it didn’t open, please contact us via WhatsApp.
     </div>
   );
 }
+
+
+
+
 
 
