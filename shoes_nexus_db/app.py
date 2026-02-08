@@ -601,16 +601,15 @@ def most_sold_sizes_per_product():
     grouped = df.groupby(["product_id", "brand", "model", "color"])
 
     for (pid, brand, model, color), group in grouped:
-        with st.expander(f"👟 {brand} {model} ({color})", expanded=False):
-
-            view = group[["size", "total_sold"]].copy()
-            view["total_sold"] = view["total_sold"].astype(int)
-
-            st.dataframe(
-                view,
-                hide_index=True,
-                use_container_width=True
-            )
+        st.markdown(f"**👟 {brand} {model} ({color})**")
+        view = group[["size", "total_sold"]].copy()
+        view["total_sold"] = view["total_sold"].astype(int)
+        st.dataframe(
+            view,
+            hide_index=True,
+            use_container_width=True
+        )
+        st.divider()
 
 #most sold sizes by gender
 def most_sold_sizes_by_gender():
