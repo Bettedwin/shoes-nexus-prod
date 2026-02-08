@@ -5,6 +5,12 @@ import { ShoppingCart, Search, Menu, X, User, MapPin, Phone, Instagram, Facebook
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const POS_URL = import.meta.env.VITE_POS_URL || 'http://localhost:8501';
 
+const getPublicBrand = (product) => product?.public_brand || product?.brand || '';
+const getPublicTitle = (product) => (
+  product?.public_title || `${product?.brand || ''} ${product?.model || ''}`.trim()
+);
+const getPublicDescription = (product) => product?.public_description || '';
+
 export default function ShoesNexusEcommerce() {
   // State Management
   const [products, setProducts] = useState([]);
@@ -576,9 +582,6 @@ If it didn’t open, please contact us via WhatsApp.
     return product.sizes.reduce((sum, size) => sum + size.stock, 0);
   };
 
-  const getPublicBrand = (product) => product.public_brand || product.brand || '';
-  const getPublicTitle = (product) => product.public_title || `${product.brand || ''} ${product.model || ''}`.trim();
-  const getPublicDescription = (product) => product.public_description || '';
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
