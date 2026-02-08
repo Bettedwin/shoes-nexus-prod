@@ -2008,29 +2008,28 @@ def admin_view_activity_log():
     df["created_at"] = pd.to_datetime(df["created_at"])
 
     # ----------------------------
-    # FILTERS
+    # FILTERS (no nested expander)
     # ----------------------------
-    with st.expander("🔍 Filters", expanded=False):
-        col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-        with col1:
-            start_date = st.date_input(
-                "From date",
-                df["created_at"].min().date()
-            )
+    with col1:
+        start_date = st.date_input(
+            "From date",
+            df["created_at"].min().date()
+        )
 
-        with col2:
-            end_date = st.date_input(
-                "To date",
-                df["created_at"].max().date()
-            )
+    with col2:
+        end_date = st.date_input(
+            "To date",
+            df["created_at"].max().date()
+        )
 
-        with col3:
-            users = ["All"] + sorted(df["username"].dropna().unique().tolist())
-            selected_user = st.selectbox("User", users)
+    with col3:
+        users = ["All"] + sorted(df["username"].dropna().unique().tolist())
+        selected_user = st.selectbox("User", users)
 
-        event_types = ["All"] + sorted(df["event_type"].unique().tolist())
-        selected_event = st.selectbox("Event Type", event_types)
+    event_types = ["All"] + sorted(df["event_type"].unique().tolist())
+    selected_event = st.selectbox("Event Type", event_types)
 
     # ----------------------------
     # APPLY FILTERS
