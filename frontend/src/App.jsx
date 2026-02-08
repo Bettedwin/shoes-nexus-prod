@@ -1646,7 +1646,7 @@ If it didn’t open, please contact us via WhatsApp.
     }
   };
 
-  const handleAdminRegeneratePublic = async () => {
+  async function handleAdminRegeneratePublic() {
     setAdminError('');
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/products/regenerate-public?overwrite=true`, {
@@ -1667,10 +1667,7 @@ If it didn’t open, please contact us via WhatsApp.
       }
     } catch (error) {
       setAdminError('Failed to regenerate public titles.');
-    }
-  };
-
-  const getAdminSourceBreakdown = () => {
+    }\n}\n\n  const getAdminSourceBreakdown = () => {
     const counts = {};
     adminOrders.forEach(order => {
       const source = (order.source && order.source.trim()) || 'Unknown';
@@ -4685,3 +4682,5 @@ If it didn’t open, please contact us via WhatsApp.
     </div>
   );
 }
+
+
