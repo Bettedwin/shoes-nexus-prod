@@ -3282,7 +3282,7 @@ def home_expenses_monthly_report():
     rows = cur.fetchall()
     if rows:
         df = pd.DataFrame(rows, columns=["expense_date", "category", "description", "amount"])
-    st.dataframe(df, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, use_container_width=True)
         breakdown = (
             df.groupby("category")["amount"]
             .sum()
@@ -3290,7 +3290,7 @@ def home_expenses_monthly_report():
             .sort_values(by="amount", ascending=False)
         )
         st.markdown("### 📂 Home Expenses by Category (Monthly)")
-    st.dataframe(
+        st.dataframe(
             breakdown.rename(columns={"category": "Category", "amount": "Amount (KES)"}),
             hide_index=True,
             use_container_width=True

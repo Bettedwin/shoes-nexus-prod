@@ -1612,6 +1612,43 @@ If it didn’t open, please contact us via WhatsApp.
       return null;
     };
 
+    slotRules.forEach((slot, slotIndex) => {
+      const primaryMatches = inStock.filter(slot.match);
+      const fallbackMatches = slot.fallback ? inStock.filter(slot.fallback) : [];
+      const pool = primaryMatches.length > 0 ? primaryMatches : fallbackMatches;
+      if (pool.length === 0) return;
+      const lastBrand = picks.length > 0 ? brandOf(picks[picks.length - 1]) : null;
+      const picked = pickFromMatches(pool, featuredHourKey + slotIndex, lastBrand);
+      if (picked) {
+        picks.push(picked);
+        used.add(picked.id);
+      }
+    });
+
+    if (picks.length < 8) {
+      const remainder = inStock.filter(p => !used.has(p.id));
+      const startIndex = featuredHourKey % (remainder.length || 1);
+      for (let i = 0; i < remainder.length && picks.length < 8; i++) {
+        const candidate = remainder[(startIndex + i) % remainder.length];
+        const lastBrand = picks.length > 0 ? brandOf(picks[picks.length - 1]) : null;
+        if (lastBrand && brandOf(candidate) === lastBrand) continue;
+        picks.push(candidate);
+        used.add(candidate.id);
+      }
+      // If brand-avoidance blocked all remaining, fill with any leftover
+      if (picks.length < 8) {
+        for (let i = 0; i < remainder.length && picks.length < 8; i++) {
+          const candidate = remainder[(startIndex + i) % remainder.length];
+          if (used.has(candidate.id)) continue;
+          picks.push(candidate);
+          used.add(candidate.id);
+        }
+      }
+    }
+
+  return picks.slice(0, 8);
+  };
+
   const handleAdminUpdateOrderStatus = async (orderId, status, paymentStatus, paymentMethod) => {
     setAdminError('');
     try {
@@ -1668,6 +1705,7 @@ If it didn’t open, please contact us via WhatsApp.
     } catch (error) {
       setAdminError('Failed to regenerate public titles.');
     }
+  }
 
   const getAdminSourceBreakdown = () => {
     const counts = {};
@@ -1684,43 +1722,6 @@ If it didn’t open, please contact us via WhatsApp.
         percent: total > 0 ? Math.round((counts[source] / total) * 100) : 0
       }));
     return { total, rows };
-  };
-
-    slotRules.forEach((slot, slotIndex) => {
-      const primaryMatches = inStock.filter(slot.match);
-      const fallbackMatches = slot.fallback ? inStock.filter(slot.fallback) : [];
-      const pool = primaryMatches.length > 0 ? primaryMatches : fallbackMatches;
-      if (pool.length === 0) return;
-      const lastBrand = picks.length > 0 ? brandOf(picks[picks.length - 1]) : null;
-      const picked = pickFromMatches(pool, featuredHourKey + slotIndex, lastBrand);
-      if (picked) {
-        picks.push(picked);
-        used.add(picked.id);
-      }
-    });
-
-    if (picks.length < 8) {
-      const remainder = inStock.filter(p => !used.has(p.id));
-      const startIndex = featuredHourKey % (remainder.length || 1);
-      for (let i = 0; i < remainder.length && picks.length < 8; i++) {
-        const candidate = remainder[(startIndex + i) % remainder.length];
-        const lastBrand = picks.length > 0 ? brandOf(picks[picks.length - 1]) : null;
-        if (lastBrand && brandOf(candidate) === lastBrand) continue;
-        picks.push(candidate);
-        used.add(candidate.id);
-      }
-      // If brand-avoidance blocked all remaining, fill with any leftover
-      if (picks.length < 8) {
-        for (let i = 0; i < remainder.length && picks.length < 8; i++) {
-          const candidate = remainder[(startIndex + i) % remainder.length];
-          if (used.has(candidate.id)) continue;
-          picks.push(candidate);
-          used.add(candidate.id);
-        }
-      }
-    }
-
-    return picks.slice(0, 8);
   };
 
   // Product Card Component
@@ -4684,6 +4685,7 @@ If it didn’t open, please contact us via WhatsApp.
     </div>
   );
 }
+
 
 
 
