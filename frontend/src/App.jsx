@@ -146,6 +146,7 @@ export default function ShoesNexusEcommerce() {
   const [adminUploadLoading, setAdminUploadLoading] = useState(false);
   const adminCreateImageRef = useRef(null);
   const adminEditImageRef = useRef(null);
+  const adminBlogImageRef = useRef(null);
   const [adminStaffForm, setAdminStaffForm] = useState({
     username: '',
     password: '',
@@ -3351,11 +3352,19 @@ If it didn’t open, please contact us via WhatsApp.
                           onChange={(e) => setAdminBlogForm({ ...adminBlogForm, image_url: e.target.value })}
                         />
                         <input
+                          ref={adminBlogImageRef}
                           type="file"
                           accept="image/*"
-                          className="border-2 border-gray-200 rounded-lg px-3 py-2"
+                          className="hidden"
                           onChange={(e) => handleAdminImageUpload(e.target.files?.[0], 'blog')}
                         />
+                        <button
+                          type="button"
+                          onClick={() => adminBlogImageRef.current?.click()}
+                          className="border-2 border-gray-200 hover:border-black px-3 py-2 rounded-lg text-sm font-semibold transition"
+                        >
+                          Upload Image
+                        </button>
                         <label className="flex items-center gap-2 text-sm text-gray-700">
                           <input
                             type="checkbox"
