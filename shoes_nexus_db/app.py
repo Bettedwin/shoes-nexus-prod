@@ -603,8 +603,7 @@ def most_sold_sizes_per_product():
     for (pid, brand, model, color), group in grouped:
         st.markdown(f"**👟 {brand} {model} ({color})**")
         view = group[["size", "total_sold"]].copy()
-        view["total_sold"] = view["total_sold"].astype(int)
-        st.dataframe(
+        view["total_sold"] = view["total_sold"].astype(int)    st.dataframe(
             view,
             hide_index=True,
             use_container_width=True
@@ -874,8 +873,7 @@ def stock_alerts():
     if alerts.empty:
         st.success("All stock levels are healthy ✅")
     else:
-        st.warning("Reorder required:")
-        st.dataframe(
+        st.warning("Reorder required:")    st.dataframe(
             alerts[["id", "brand", "model", "color", "stock", "reorder_level"]],
             hide_index=True,
             use_container_width=True,
@@ -2737,8 +2735,7 @@ def inventory_valuation_summary():
 
     # ---- Warnings ----
     if not missing_cost.empty:
-        st.warning("⚠️ Some products have NO buying price — valuation incomplete")
-        st.dataframe(
+        st.warning("⚠️ Some products have NO buying price — valuation incomplete")    st.dataframe(
             missing_cost[["brand", "model", "color", "total_qty"]],
             hide_index=True,
             use_container_width=True
@@ -3281,16 +3278,14 @@ def home_expenses_monthly_report():
     """, (month_str,))
     rows = cur.fetchall()
     if rows:
-        df = pd.DataFrame(rows, columns=["expense_date", "category", "description", "amount"])
-        st.dataframe(df, hide_index=True, use_container_width=True)
+        df = pd.DataFrame(rows, columns=["expense_date", "category", "description", "amount"])    st.dataframe(df, hide_index=True, use_container_width=True)
         breakdown = (
             df.groupby("category")["amount"]
             .sum()
             .reset_index()
             .sort_values(by="amount", ascending=False)
         )
-        st.markdown("### 📂 Home Expenses by Category (Monthly)")
-        st.dataframe(
+        st.markdown("### 📂 Home Expenses by Category (Monthly)")    st.dataframe(
             breakdown.rename(columns={"category": "Category", "amount": "Amount (KES)"}),
             hide_index=True,
             use_container_width=True
@@ -3577,8 +3572,7 @@ def balance_sheet():
     )
 
     # Optional table
-    with st.expander("📋 Balance Sheet Table View", expanded=False):
-        bs = pd.DataFrame({
+    st.subheader("Balance Sheet Table View")    bs = pd.DataFrame({
             "Category": [
                 "Cash",
                 "Inventory (On Hand)",
@@ -3596,8 +3590,7 @@ def balance_sheet():
                 equity
             ]
         })
-
-        st.dataframe(bs, hide_index=True, use_container_width=True)
+    st.dataframe(bs, hide_index=True, use_container_width=True)
     if st.button("⬇️ Export Balance Sheet as PDF"):
         pdf_path = export_balance_sheet_pdf(
             as_of,
@@ -3995,4 +3988,8 @@ def main():
 
 
 main()
+
+
+
+
 
