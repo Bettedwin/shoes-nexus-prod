@@ -3200,6 +3200,10 @@ If it didn’t open, please contact us via WhatsApp.
                             value={adminProductForm.color}
                             onChange={(e) => setAdminProductForm({ ...adminProductForm, color: e.target.value })}
                           />
+                          <div className="text-sm font-semibold text-gray-700">Image URL</div>
+                          <div className="text-xs text-gray-500 -mt-1">
+                            Required if you rename or swap the image file. Example: /images/women-sandals/your-file.jpeg
+                          </div>
                           <input
                             className="border-2 border-gray-200 rounded-lg px-3 py-2"
                             placeholder="Image URL (e.g. /images/women-sandals/...)"
@@ -3805,6 +3809,10 @@ If it didn’t open, please contact us via WhatsApp.
                               value={adminEditForm.color}
                               onChange={(e) => setAdminEditForm({ ...adminEditForm, color: e.target.value })}
                             />
+                          <div className="text-sm font-semibold text-gray-700">Image URL</div>
+                          <div className="text-xs text-gray-500 -mt-1">
+                            Update this if you rename or replace the image file.
+                          </div>
                           <input
                             className="border-2 border-gray-200 rounded-lg px-3 py-2"
                             placeholder="Image URL (e.g. /images/women-sandals/...)"
