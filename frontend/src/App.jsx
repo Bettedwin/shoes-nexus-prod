@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, Search, Menu, X, User, MapPin, Phone, Instagram, Facebook, Twitter, Heart, Check, ArrowRight, Package, TrendingUp, Star, AlertCircle, Loader } from 'lucide-react';
 
 // API Configuration
@@ -144,6 +144,8 @@ export default function ShoesNexusEcommerce() {
     new_password: ''
   });
   const [adminUploadLoading, setAdminUploadLoading] = useState(false);
+  const adminCreateImageRef = useRef(null);
+  const adminEditImageRef = useRef(null);
   const [adminStaffForm, setAdminStaffForm] = useState({
     username: '',
     password: '',
@@ -3223,11 +3225,19 @@ If it didn’t open, please contact us via WhatsApp.
                             onChange={(e) => setAdminProductForm({ ...adminProductForm, public_title: e.target.value })}
                           />
                           <input
+                            ref={adminCreateImageRef}
                             type="file"
                             accept="image/*"
-                            className="border-2 border-gray-200 rounded-lg px-3 py-2"
+                            className="hidden"
                             onChange={(e) => handleAdminImageUpload(e.target.files?.[0], 'create')}
                           />
+                          <button
+                            type="button"
+                            onClick={() => adminCreateImageRef.current?.click()}
+                            className="border-2 border-gray-200 hover:border-black px-3 py-2 rounded-lg text-sm font-semibold transition"
+                          >
+                            Upload Image
+                          </button>
                           <input
                             className="border-2 border-gray-200 rounded-lg px-3 py-2"
                             placeholder="Buying Price"
@@ -3832,11 +3842,19 @@ If it didn’t open, please contact us via WhatsApp.
                             onChange={(e) => setAdminEditForm({ ...adminEditForm, public_title: e.target.value })}
                           />
                           <input
+                            ref={adminEditImageRef}
                             type="file"
                             accept="image/*"
-                            className="border-2 border-gray-200 rounded-lg px-3 py-2"
+                            className="hidden"
                             onChange={(e) => handleAdminImageUpload(e.target.files?.[0], 'edit')}
                           />
+                          <button
+                            type="button"
+                            onClick={() => adminEditImageRef.current?.click()}
+                            className="border-2 border-gray-200 hover:border-black px-3 py-2 rounded-lg text-sm font-semibold transition"
+                          >
+                            Upload Image
+                          </button>
                             <input
                               className="border-2 border-gray-200 rounded-lg px-3 py-2"
                               placeholder="Buying Price"
