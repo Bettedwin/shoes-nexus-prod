@@ -63,6 +63,7 @@ def ensure_net_sales_view():
             ELSE s.cost * (s.quantity - COALESCE(s.returned_quantity, 0)) / s.quantity
         END AS net_cost,
         s.payment_method,
+        s.source,
         s.sale_date
     FROM sales s
     WHERE s.return_status != 'FULL';
@@ -118,6 +119,49 @@ def ensure_operating_expenses_table():
             amount REAL NOT NULL,
             created_by TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def ensure_sales_source_column():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE sales ADD COLUMN source TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+    conn.close()
+
+def ensure_product_public_fields():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(products)")
+    columns = [row[1] for row in cur.fetchall()]
+    if "image_url" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
+    if "public_brand" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_brand TEXT")
+    if "public_title" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_title TEXT")
+    if "public_description" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_description TEXT")
+    conn.commit()
+    conn.close()
+
+def ensure_home_expenses_table():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS home_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            expense_date DATE NOT NULL,
+            category TEXT NOT NULL,
+            description TEXT,
+            amount REAL NOT NULL,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -308,6 +352,19 @@ def pos_screen(show_prices=False):
         horizontal=True
     )
 
+    source = st.selectbox(
+        "Customer Source",
+        [
+            "In-store Walkins",
+            "Instagram",
+            "TikTok",
+            "Twitter",
+            "Website",
+            "Referral",
+            "Other"
+        ]
+    )
+
     notes = st.text_area("📝 Sales Notes (optional)")
 
     if show_prices:
@@ -376,8 +433,8 @@ def pos_screen(show_prices=False):
             cur.execute(
                 """
                 INSERT INTO sales
-                (product_id, size, quantity, revenue, cost, payment_method, sale_date, notes)
-                VALUES (?, ?, ?, ?, ?, ?, date('now'), ?)
+                (product_id, size, quantity, revenue, cost, payment_method, source, sale_date, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), ?)
                 """,
                 (
                     product_id,
@@ -386,6 +443,7 @@ def pos_screen(show_prices=False):
                     revenue,
                     cost,
                     payment,
+                    source,
                     notes
                 )
             )
@@ -1735,16 +1793,28 @@ def admin_handle_returns():
             already_returned = int(result[1]) if result[1] is not None else 0
             current_status = result[2] if result[2] is not None else 'NONE'
 
-            sold_qty, already_returned, current_status = result
-            
-            st.write(f"🔍 Sale Check: Sold={sold_qty}, Already Returned={already_returned}, Status={current_status}")
+            # Account for other pending return requests on the same sale
+            cur.execute("""
+                SELECT COALESCE(SUM(quantity), 0)
+                FROM returns_exchanges
+                WHERE sale_id = ?
+                  AND type = 'RETURN'
+                  AND status = 'PENDING'
+                  AND id != ?
+            """, (int(row["sale_id"]), int(request_id)))
+            pending_other = int(cur.fetchone()[0] or 0)
+
+            st.write(
+                f"🔍 Sale Check: Sold={sold_qty}, Already Returned={already_returned}, "
+                f"Pending Other={pending_other}, Status={current_status}"
+            )
 
             # 2️⃣ Prevent over-return
-            if row["return_qty"] + already_returned > sold_qty:
+            if row["return_qty"] + already_returned + pending_other > sold_qty:
                 st.error(
                     f"❌ Cannot approve return. "
                     f"Attempting to return {row['return_qty']}, "
-                    f"but only {sold_qty - already_returned} item(s) remain returnable."
+                    f"but only {sold_qty - already_returned - pending_other} item(s) remain returnable."
                 )
                 conn.close()
                 return
@@ -3084,6 +3154,153 @@ def operating_expenses_entry():
 
         st.success("✅ Operating expenses recorded successfully")
 
+# Home Expenses (Manager/Admin)
+def home_expenses_entry():
+    st.subheader("🏠 Home Expenses")
+
+    st.markdown("### Step 1: Select Expense Date")
+    expense_date = st.date_input("Expense Date", pd.Timestamp.today())
+    st.caption(f"📅 Selected date: {expense_date.strftime('%Y-%m-%d')}")
+
+    st.markdown("### Step 2: Expense Details")
+    category = st.selectbox(
+        "Expense Category",
+        [
+            "Rent",
+            "Electricity (Power)",
+            "Water",
+            "Internet",
+            "Garbage Collection",
+            "Food & Groceries",
+            "Transport / Fuel",
+            "School Fees",
+            "Medical / Health",
+            "Household Supplies",
+            "Clothing",
+            "Personal Care",
+            "Entertainment",
+            "Insurance",
+            "Loan Repayment",
+            "Savings / Investments",
+            "Repairs & Maintenance",
+            "Gifts / Donations",
+            "Childcare",
+            "Mobile Airtime",
+            "Other"
+        ]
+    )
+    description = st.text_area(
+        "Additional Notes (optional)",
+        placeholder="Add more details if needed..."
+    )
+    amount = st.number_input("Amount (KES)", min_value=0, step=100)
+
+    st.markdown("### Step 3: Review & Submit")
+    st.markdown("**Expense Summary:**")
+    st.write(f"Date: {expense_date.strftime('%Y-%m-%d')}")
+    st.write(f"Category: {category}")
+    st.write(f"Description: {description or category}")
+    st.write(f"Amount: KES {int(amount)}")
+
+    if st.button("✅ Submit Home Expense"):
+        if amount <= 0:
+            st.error("❌ Amount must be greater than 0.")
+            return
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO home_expenses
+            (expense_date, category, description, amount, created_by)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                expense_date.strftime("%Y-%m-%d"),
+                category,
+                description or category,
+                int(amount),
+                st.session_state.username
+            )
+        )
+        conn.commit()
+        conn.close()
+        st.success("✅ Home expense recorded")
+
+def home_expenses_summary(start_date=None, end_date=None):
+    st.subheader("🏠 Home Expenses Summary")
+    conn = get_db()
+    cur = conn.cursor()
+    if not start_date or not end_date:
+        end_date = pd.Timestamp.today()
+        start_date = end_date - pd.Timedelta(days=30)
+    cur.execute("""
+        SELECT expense_date, category, description, amount
+        FROM home_expenses
+        WHERE expense_date BETWEEN ? AND ?
+        ORDER BY expense_date DESC
+    """, (start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")))
+    rows = cur.fetchall()
+    if not rows:
+        st.info("No home expenses recorded yet.")
+        conn.close()
+        return
+    df = pd.DataFrame(rows, columns=["expense_date", "category", "description", "amount"])
+    total = int(df["amount"].sum())
+    st.metric("Total Home Expenses (KES)", total)
+    st.dataframe(df, hide_index=True, use_container_width=True)
+    breakdown = (
+        df.groupby("category")["amount"]
+        .sum()
+        .reset_index()
+        .sort_values(by="amount", ascending=False)
+    )
+    st.markdown("### 📂 Home Expenses by Category")
+    st.dataframe(
+        breakdown.rename(columns={"category": "Category", "amount": "Amount (KES)"}),
+        hide_index=True,
+        use_container_width=True
+    )
+    conn.close()
+
+def home_expenses_monthly_report():
+    st.subheader("🏠 Home Expenses Monthly Report")
+    conn = get_db()
+    cur = conn.cursor()
+    month = st.date_input("Select Month", pd.Timestamp.today(), key="home_expenses_month")
+    month_str = month.strftime("%Y-%m")
+    cur.execute("""
+        SELECT SUM(amount)
+        FROM home_expenses
+        WHERE strftime('%Y-%m', expense_date) = ?
+    """, (month_str,))
+    total = cur.fetchone()[0] or 0
+    st.metric("Total Home Expenses (KES)", int(total))
+    cur.execute("""
+        SELECT expense_date, category, description, amount
+        FROM home_expenses
+        WHERE strftime('%Y-%m', expense_date) = ?
+        ORDER BY expense_date DESC
+    """, (month_str,))
+    rows = cur.fetchall()
+    if rows:
+        df = pd.DataFrame(rows, columns=["expense_date", "category", "description", "amount"])
+        st.dataframe(df, hide_index=True, use_container_width=True)
+        breakdown = (
+            df.groupby("category")["amount"]
+            .sum()
+            .reset_index()
+            .sort_values(by="amount", ascending=False)
+        )
+        st.markdown("### 📂 Home Expenses by Category (Monthly)")
+        st.dataframe(
+            breakdown.rename(columns={"category": "Category", "amount": "Amount (KES)"}),
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.info("No home expenses recorded for this month.")
+    conn.close()
+
 #Operating expenses summary totals and breakdown
 def operating_expenses_summary(start_date=None, end_date=None):
     st.subheader("📉 Operating Expenses Summary")
@@ -3603,6 +3820,12 @@ def admin_home():
         operating_expenses_summary()
         profit_and_loss_statement()
         balance_sheet()
+    st.divider()
+    with st.expander("🏠 Home Expenses", expanded=False):
+        home_expenses_entry()
+        home_expenses_summary()
+        st.divider()
+        home_expenses_monthly_report()
 
     if st.button("Logout"):
         st.session_state.clear()
@@ -3621,8 +3844,11 @@ def main():
     # ----------------------------
     init_session()
     ensure_activity_log()
+    ensure_sales_source_column()
+    ensure_product_public_fields()
     ensure_net_sales_view()
     ensure_operating_expenses_table()
+    ensure_home_expenses_table()
     ensure_stock_in_transit_table()
     ensure_opening_inventory_table()
     upgrade_stock_in_transit_table()

@@ -13,7 +13,24 @@ import hmac
 import secrets
 import time
 import uuid
-from config import DB_PATH, DELIVERY_ZONES, MPESA_PAYBILL, MPESA_ACCOUNT
+import smtplib
+import re
+from email.message import EmailMessage
+from config import (
+    DB_PATH,
+    DELIVERY_ZONES,
+    MPESA_PAYBILL,
+    MPESA_ACCOUNT,
+    BUSINESS_NAME,
+    BUSINESS_EMAIL,
+    WHATSAPP_NUMBER,
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_USER,
+    SMTP_PASS,
+    SMTP_FROM,
+    SMTP_TLS,
+)
 
 # ============================================
 # DATABASE CONNECTION
@@ -95,6 +112,7 @@ class OrderCreate(BaseModel):
     delivery_zone: str
     items: List[CartItem]
     customer_notes: Optional[str] = None
+    source: Optional[str] = None
 
 class RegisterRequest(BaseModel):
     name: str
@@ -138,6 +156,9 @@ class ProductCreateRequest(BaseModel):
     selling_price: int
     buying_price: Optional[int] = None
     image_url: Optional[str] = None
+    public_brand: Optional[str] = None
+    public_title: Optional[str] = None
+    public_description: Optional[str] = None
     sizes: Optional[List[ProductSizeInput]] = None
 
 class ProductUpdateRequest(BaseModel):
@@ -148,6 +169,9 @@ class ProductUpdateRequest(BaseModel):
     selling_price: Optional[int] = None
     buying_price: Optional[int] = None
     image_url: Optional[str] = None
+    public_brand: Optional[str] = None
+    public_title: Optional[str] = None
+    public_description: Optional[str] = None
     sizes: Optional[List[ProductSizeInput]] = None
 
 class BlogPostCreateRequest(BaseModel):
@@ -196,6 +220,10 @@ class AdminResetUserPasswordRequest(BaseModel):
     identifier: str
     new_password: str
 
+class AdminResetStaffPasswordRequest(BaseModel):
+    username: str
+    new_password: str
+
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
@@ -217,6 +245,150 @@ def get_product_image_url(product_id: int, brand: str, model: str, color: str):
     
     # Return placeholder if no image found
     return "/images/placeholder.jpg"
+
+def slugify(value: str) -> str:
+    base = "".join(ch.lower() if ch.isalnum() else "-" for ch in (value or "").strip())
+    while "--" in base:
+        base = base.replace("--", "-")
+    return base.strip("-") or "post"
+
+def title_case(value: str) -> str:
+    words = [w for w in (value or "").replace("-", " ").split() if w]
+    return " ".join(w.capitalize() for w in words)
+
+def detect_style(model: str, image_url: str) -> str:
+    text = f"{model or ''} {image_url or ''}".lower()
+    checks = [
+        (r"multi-strap|multistrap", "Multi-Strap Sandals"),
+        (r"3-strap|3 strap", "3-Strap Sandals"),
+        (r"diamond strap", "Diamond Strap Sandals"),
+        (r"metal strap", "Metal Strap Sandals"),
+        (r"platform slides|platform slide", "Platform Slides"),
+        (r"doll shoes|doll shoe", "Doll Shoes Flats"),
+        (r"rhinestone", "Rhinestone Stiletto Heels"),
+        (r"stiletto|stilletto|stilleto", "Stiletto High Heels"),
+        (r"butterfly", "Butterfly Detail Heels"),
+        (r"heel|heels", "Heels"),
+        (r"sneaker|sneakers|trainer", "Sneakers"),
+        (r"slide|slides", "Slides"),
+        (r"sandals|sandal", "Sandals"),
+        (r"boots|boot", "Boots"),
+        (r"shoes|shoe", "Shoes"),
+    ]
+    for pattern, label in checks:
+        if re.search(pattern, text):
+            return label
+    return "Sandals"
+
+def build_public_description(title: str, model: str, color: str, image_url: str) -> str:
+    text = f"{model or ''} {color or ''} {image_url or ''}".lower()
+    details = []
+    if "suede" in text:
+        details.append("Soft suede finish for a premium feel")
+    if "leather" in text:
+        details.append("Smooth leather feel with durable build")
+    if "rhinestone" in text or "glitter" in text:
+        details.append("Sparkle accents for a dressy look")
+    if "butterfly" in text:
+        details.append("Statement butterfly detail")
+    if "platform" in text:
+        details.append("Cushioned platform for extra height")
+    if "criss" in text:
+        details.append("Criss-cross straps for secure fit")
+    if "fluffy" in text:
+        details.append("Soft plush comfort for all-day wear")
+    if "slide" in text:
+        details.append("Easy slip-on design")
+    if "doll" in text:
+        details.append("Flat profile for everyday comfort")
+    desc = [f"{title} designed for comfort, fit, and daily wear."]
+    if details:
+        desc.append(". ".join(details) + ".")
+    desc.append("Affordable quality from Shoes Nexus Kenya with multiple sizes available.")
+    desc.append("Fast Nairobi delivery and reliable nationwide shipping.")
+    return " ".join(desc)
+
+def generate_public_fields(category: str, model: str, color: str, image_url: str):
+    cat = (category or "").lower()
+    gender = "Women's" if "women" in cat else "Men's" if "men" in cat else ""
+    color_txt = title_case(color or "")
+    style = detect_style(model or "", image_url or "")
+    parts = [p for p in [gender, color_txt, style] if p]
+    title = " ".join(parts).strip() or "Comfort Sandals"
+    description = build_public_description(title, model or "", color or "", image_url or "")
+    return "Shoes Nexus", title, description
+
+def ensure_audit_log():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS admin_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            actor TEXT,
+            details TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def ensure_product_public_fields():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(products)")
+    columns = [row[1] for row in cur.fetchall()]
+    if "image_url" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
+    if "public_brand" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_brand TEXT")
+    if "public_title" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_title TEXT")
+    if "public_description" not in columns:
+        cur.execute("ALTER TABLE products ADD COLUMN public_description TEXT")
+    conn.commit()
+    conn.close()
+
+def log_audit_event(event_type: str, actor: Optional[str], details: str):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO admin_audit_log (event_type, actor, details)
+            VALUES (?, ?, ?)
+        """, (event_type, actor, details))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+def send_reset_email(to_email: str, reset_token: str, expires_at: int):
+    if not SMTP_HOST or not SMTP_FROM:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = f"{BUSINESS_NAME} Password Reset"
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_email
+        expiry = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
+        msg.set_content(
+            f"Your password reset token is:\n\n{reset_token}\n\n"
+            f"This token expires at {expiry}.\n\n"
+            "If you did not request this, you can ignore this email."
+        )
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            if SMTP_TLS:
+                server.starttls()
+            if SMTP_USER and SMTP_PASS:
+                server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        return True
+    except Exception:
+        return False
 
 def init_auth_tables():
     conn = get_db()
@@ -294,6 +466,12 @@ def init_order_tables():
             delivery_address TEXT,
             delivery_method TEXT,
             customer_notes TEXT,
+            source TEXT,
+            status TEXT DEFAULT 'PENDING',
+            payment_status TEXT DEFAULT 'UNPAID',
+            payment_method TEXT,
+            paid_at TEXT,
+            updated_at TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (customer_id) REFERENCES customers(id)
         )
@@ -311,6 +489,20 @@ def init_order_tables():
             FOREIGN KEY (product_id) REFERENCES products(id)
         )
     """)
+    cur.execute("PRAGMA table_info(online_orders)")
+    columns = [row[1] for row in cur.fetchall()]
+    if "status" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN status TEXT DEFAULT 'PENDING'")
+    if "payment_status" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN payment_status TEXT DEFAULT 'UNPAID'")
+    if "payment_method" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN payment_method TEXT")
+    if "paid_at" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN paid_at TEXT")
+    if "updated_at" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN updated_at TEXT")
+    if "source" not in columns:
+        cur.execute("ALTER TABLE online_orders ADD COLUMN source TEXT")
     conn.commit()
     conn.close()
 
@@ -411,6 +603,7 @@ def init_blog_tables():
         CREATE TABLE IF NOT EXISTS blog_posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
+            slug TEXT,
             category TEXT,
             excerpt TEXT,
             content TEXT,
@@ -425,10 +618,15 @@ def init_blog_tables():
     columns = [row[1] for row in cur.fetchall()]
     if "category" not in columns:
         cur.execute("ALTER TABLE blog_posts ADD COLUMN category TEXT")
+    if "slug" not in columns:
+        cur.execute("ALTER TABLE blog_posts ADD COLUMN slug TEXT")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_posts_slug ON blog_posts(slug)")
     conn.commit()
     conn.close()
 
 init_blog_tables()
+ensure_audit_log()
+ensure_product_public_fields()
 
 def init_home_sections():
     conn = get_db()
@@ -485,7 +683,7 @@ def get_products(
     
     query = """
         SELECT 
-            id, brand, model, color, category, selling_price
+            id, brand, model, color, category, selling_price, public_brand, public_title, public_description
         FROM products
         WHERE is_active = 1
     """
@@ -543,7 +741,7 @@ def get_product(product_id: int):
     cur = conn.cursor()
     
     cur.execute("""
-        SELECT id, brand, model, color, category, selling_price
+        SELECT id, brand, model, color, category, selling_price, public_brand, public_title, public_description
         FROM products
         WHERE id = ? AND is_active = 1
     """, (product_id,))
@@ -617,6 +815,8 @@ def register_user(payload: RegisterRequest):
     conn = get_db()
     cur = conn.cursor()
     try:
+        if not payload.phone or not payload.phone.strip():
+            raise HTTPException(status_code=400, detail="Phone number is required")
         cur.execute("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", (payload.email,))
         if cur.fetchone():
             raise HTTPException(status_code=400, detail="Email already registered")
@@ -755,7 +955,7 @@ def admin_list_products(authorization: Optional[str] = Header(None), limit: int 
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, category, brand, model, color, buying_price, selling_price, is_active
+        SELECT id, category, brand, model, color, buying_price, selling_price, public_brand, public_title, public_description, is_active
         FROM products
         ORDER BY id DESC
         LIMIT ?
@@ -775,15 +975,39 @@ def admin_list_products(authorization: Optional[str] = Header(None), limit: int 
     conn.close()
     return products
 
-@app.post("/api/admin/products")
-def admin_create_product(payload: ProductCreateRequest, authorization: Optional[str] = Header(None)):
+@app.get("/api/admin/low-stock")
+def admin_low_stock(authorization: Optional[str] = Header(None), threshold: int = 3):
     require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("""
+        SELECT p.id, p.brand, p.model, p.color, p.category,
+               COALESCE(SUM(ps.quantity), 0) as total_stock
+        FROM products p
+        LEFT JOIN product_sizes ps ON ps.product_id = p.id
+        WHERE p.is_active = 1
+        GROUP BY p.id
+        HAVING total_stock <= ?
+        ORDER BY total_stock ASC, p.brand, p.model
+    """, (threshold,))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+@app.post("/api/admin/products")
+def admin_create_product(payload: ProductCreateRequest, authorization: Optional[str] = Header(None)):
+    staff = require_admin(authorization)
+    conn = get_db()
+    cur = conn.cursor()
     try:
+        if payload.buying_price is None:
+            raise HTTPException(status_code=400, detail="Buying price is required")
         cur.execute("""
-            INSERT INTO products (category, brand, model, color, buying_price, selling_price, image_url, stock, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            INSERT INTO products (
+                category, brand, model, color, buying_price, selling_price, image_url,
+                public_brand, public_title, public_description, stock, is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """, (
             payload.category,
             payload.brand,
@@ -792,6 +1016,9 @@ def admin_create_product(payload: ProductCreateRequest, authorization: Optional[
             payload.buying_price,
             payload.selling_price,
             payload.image_url,
+            payload.public_brand,
+            payload.public_title,
+            payload.public_description,
             0
         ))
         product_id = cur.lastrowid
@@ -802,6 +1029,7 @@ def admin_create_product(payload: ProductCreateRequest, authorization: Optional[
                     VALUES (?, ?, ?)
                 """, (product_id, size.size, size.stock))
         conn.commit()
+        log_audit_event("product_create", staff.get("username"), f"Created product {product_id}")
         return {"success": True, "id": product_id}
     except Exception as e:
         conn.rollback()
@@ -811,13 +1039,17 @@ def admin_create_product(payload: ProductCreateRequest, authorization: Optional[
 
 @app.put("/api/admin/products/{product_id}")
 def admin_update_product(product_id: int, payload: ProductUpdateRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
         fields = []
         params = []
-        for field_name in ["category", "brand", "model", "color", "buying_price", "selling_price", "image_url"]:
+        for field_name in [
+            "category", "brand", "model", "color",
+            "buying_price", "selling_price", "image_url",
+            "public_brand", "public_title", "public_description"
+        ]:
             value = getattr(payload, field_name)
             if value is not None:
                 fields.append(f"{field_name} = ?")
@@ -835,6 +1067,7 @@ def admin_update_product(product_id: int, payload: ProductUpdateRequest, authori
                 """, (product_id, size.size, size.stock))
 
         conn.commit()
+        log_audit_event("product_update", staff.get("username"), f"Updated product {product_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -842,6 +1075,45 @@ def admin_update_product(product_id: int, payload: ProductUpdateRequest, authori
     finally:
         conn.close()
 
+@app.post("/api/admin/products/regenerate-public")
+def admin_regenerate_public_fields(authorization: Optional[str] = Header(None), overwrite: bool = False):
+    staff = require_admin(authorization)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, category, model, color, image_url, public_title
+            FROM products
+            WHERE is_active = 1
+        """)
+        rows = cur.fetchall()
+        updated = 0
+        for row in rows:
+            if not overwrite and row["public_title"]:
+                continue
+            public_brand, public_title, public_description = generate_public_fields(
+                row["category"],
+                row["model"],
+                row["color"],
+                row["image_url"]
+            )
+            cur.execute(
+                """
+                UPDATE products
+                SET public_brand = ?, public_title = ?, public_description = ?
+                WHERE id = ?
+                """,
+                (public_brand, public_title, public_description, row["id"])
+            )
+            updated += 1
+        conn.commit()
+        log_audit_event("product_regenerate_public", staff.get("username"), f"Regenerated {updated} products")
+        return {"success": True, "updated": updated}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 @app.post("/api/admin/products/{product_id}/deactivate")
 def admin_deactivate_product(product_id: int, authorization: Optional[str] = Header(None)):
     require_admin(authorization)
@@ -884,7 +1156,7 @@ def admin_list_staff(authorization: Optional[str] = Header(None)):
 
 @app.post("/api/admin/staff")
 def admin_create_staff(payload: StaffCreateRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -897,6 +1169,7 @@ def admin_create_staff(payload: StaffCreateRequest, authorization: Optional[str]
             VALUES (?, ?, ?, 1)
         """, (payload.username, password_hash, payload.role))
         conn.commit()
+        log_audit_event("staff_create", staff.get("username"), f"Created staff {payload.username}")
         return {"success": True}
     except HTTPException:
         conn.rollback()
@@ -909,7 +1182,7 @@ def admin_create_staff(payload: StaffCreateRequest, authorization: Optional[str]
 
 @app.put("/api/admin/staff/{staff_id}")
 def admin_update_staff(staff_id: int, payload: StaffCreateRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -920,6 +1193,7 @@ def admin_update_staff(staff_id: int, payload: StaffCreateRequest, authorization
             WHERE id = ?
         """, (payload.username, password_hash, payload.role, staff_id))
         conn.commit()
+        log_audit_event("staff_update", staff.get("username"), f"Updated staff {staff_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -929,12 +1203,13 @@ def admin_update_staff(staff_id: int, payload: StaffCreateRequest, authorization
 
 @app.post("/api/admin/staff/{staff_id}/deactivate")
 def admin_deactivate_staff(staff_id: int, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE staff SET is_active = 0 WHERE id = ?", (staff_id,))
         conn.commit()
+        log_audit_event("staff_deactivate", staff.get("username"), f"Deactivated staff {staff_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -944,12 +1219,13 @@ def admin_deactivate_staff(staff_id: int, authorization: Optional[str] = Header(
 
 @app.post("/api/admin/staff/{staff_id}/activate")
 def admin_activate_staff(staff_id: int, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE staff SET is_active = 1 WHERE id = ?", (staff_id,))
         conn.commit()
+        log_audit_event("staff_activate", staff.get("username"), f"Activated staff {staff_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -959,7 +1235,7 @@ def admin_activate_staff(staff_id: int, authorization: Optional[str] = Header(No
 
 @app.post("/api/admin/users/reset-password")
 def admin_reset_user_password(payload: AdminResetUserPasswordRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -977,6 +1253,7 @@ def admin_reset_user_password(payload: AdminResetUserPasswordRequest, authorizat
             (password_hash, password_salt, row["id"])
         )
         conn.commit()
+        log_audit_event("user_reset_password", staff.get("username"), f"Reset password for user {row['id']}")
         return {"success": True}
     except HTTPException:
         conn.rollback()
@@ -1007,6 +1284,36 @@ def admin_list_users(authorization: Optional[str] = Header(None), search: Option
     finally:
         conn.close()
 
+@app.post("/api/admin/staff/reset-password")
+def admin_reset_staff_password(payload: AdminResetStaffPasswordRequest, authorization: Optional[str] = Header(None)):
+    staff = require_admin(authorization)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id FROM staff WHERE LOWER(username) = LOWER(?)",
+            (payload.username.strip(),)
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Staff user not found")
+        password_hash = hash_staff_password(payload.new_password)
+        cur.execute(
+            "UPDATE staff SET password_hash = ? WHERE id = ?",
+            (password_hash, row["id"])
+        )
+        conn.commit()
+        log_audit_event("staff_reset_password", staff.get("username"), f"Reset staff password {row['id']}")
+        return {"success": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/api/admin/sales")
 def admin_list_sales(authorization: Optional[str] = Header(None), limit: int = 200):
     require_admin(authorization)
@@ -1032,6 +1339,7 @@ def admin_list_orders(authorization: Optional[str] = Header(None), limit: int = 
     try:
         cur.execute("""
             SELECT o.id, o.order_number, o.total_amount, o.delivery_method, o.created_at,
+                   o.status, o.payment_status, o.payment_method, o.updated_at, o.source,
                    c.name as customer_name, c.phone as customer_phone
             FROM online_orders o
             LEFT JOIN customers c ON c.id = o.customer_id
@@ -1051,13 +1359,99 @@ def admin_list_orders(authorization: Optional[str] = Header(None), limit: int = 
     finally:
         conn.close()
 
+@app.get("/api/admin/audit-log")
+def admin_audit_log(authorization: Optional[str] = Header(None), limit: int = 200):
+    require_admin(authorization)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, event_type, actor, details, created_at
+        FROM admin_audit_log
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limit,))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+class OrderStatusUpdateRequest(BaseModel):
+    status: str
+    payment_status: Optional[str] = None
+    payment_method: Optional[str] = None
+    paid_at: Optional[str] = None
+
+@app.put("/api/admin/orders/{order_id}/status")
+def admin_update_order_status(order_id: int, payload: OrderStatusUpdateRequest, authorization: Optional[str] = Header(None)):
+    staff = require_admin(authorization)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        fields = ["status = ?", "updated_at = datetime('now')"]
+        params = [payload.status]
+        if payload.payment_status is not None:
+            fields.append("payment_status = ?")
+            params.append(payload.payment_status)
+        if payload.payment_method is not None:
+            fields.append("payment_method = ?")
+            params.append(payload.payment_method)
+        if payload.paid_at is not None:
+            fields.append("paid_at = ?")
+            params.append(payload.paid_at)
+        params.append(order_id)
+        cur.execute(f"UPDATE online_orders SET {', '.join(fields)} WHERE id = ?", params)
+        conn.commit()
+        log_audit_event("order_status_update", staff.get("username"), f"Order {order_id} -> {payload.status}")
+        return {"success": True}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/orders/me")
+def get_my_orders(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    token = authorization.split(" ", 1)[1].strip()
+    user = get_user_from_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        email = (user.get("email") or "").lower()
+        phone = user.get("phone") or ""
+        cur.execute("""
+            SELECT o.id, o.order_number, o.total_amount, o.delivery_method, o.created_at,
+                   o.status, o.payment_status, o.payment_method, o.updated_at, o.source,
+                   c.name as customer_name, c.phone as customer_phone, c.email as customer_email
+            FROM online_orders o
+            LEFT JOIN customers c ON c.id = o.customer_id
+            WHERE (LOWER(c.email) = ? AND c.email != '')
+               OR (c.phone = ? AND c.phone != '')
+            ORDER BY o.id DESC
+        """, (email, phone))
+        orders = [dict(r) for r in cur.fetchall()]
+        for order in orders:
+            cur.execute("""
+                SELECT oi.quantity, oi.unit_price, oi.total_price, p.brand, p.model, p.color, oi.size
+                FROM order_items oi
+                LEFT JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id = ?
+            """, (order["id"],))
+            order["items"] = [dict(r) for r in cur.fetchall()]
+        return orders
+    finally:
+        conn.close()
+
 @app.get("/api/blog")
 def list_blog_posts(limit: int = 6, offset: int = 0, category: Optional[str] = None):
     conn = get_db()
     cur = conn.cursor()
     if category:
         cur.execute("""
-            SELECT id, title, category, excerpt, content, image_url, created_at
+            SELECT id, title, slug, category, excerpt, content, image_url, created_at
             FROM blog_posts
             WHERE is_published = 1 AND category = ?
             ORDER BY datetime(created_at) DESC
@@ -1065,7 +1459,7 @@ def list_blog_posts(limit: int = 6, offset: int = 0, category: Optional[str] = N
         """, (category, limit, offset))
     else:
         cur.execute("""
-            SELECT id, title, category, excerpt, content, image_url, created_at
+            SELECT id, title, slug, category, excerpt, content, image_url, created_at
             FROM blog_posts
             WHERE is_published = 1
             ORDER BY datetime(created_at) DESC
@@ -1074,6 +1468,21 @@ def list_blog_posts(limit: int = 6, offset: int = 0, category: Optional[str] = N
     rows = cur.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+@app.get("/api/blog/{slug}")
+def get_blog_post(slug: str):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, title, slug, category, excerpt, content, image_url, created_at
+        FROM blog_posts
+        WHERE is_published = 1 AND slug = ?
+    """, (slug,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return dict(row)
 
 @app.get("/api/blog/categories")
 def list_blog_categories():
@@ -1095,7 +1504,7 @@ def admin_list_blog_posts(authorization: Optional[str] = Header(None)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, title, category, excerpt, content, image_url, is_published, created_at, updated_at
+        SELECT id, title, slug, category, excerpt, content, image_url, is_published, created_at, updated_at
         FROM blog_posts
         ORDER BY datetime(created_at) DESC
     """)
@@ -1109,11 +1518,16 @@ def admin_create_blog_post(payload: BlogPostCreateRequest, authorization: Option
     conn = get_db()
     cur = conn.cursor()
     try:
+        slug = slugify(payload.title)
+        cur.execute("SELECT id FROM blog_posts WHERE slug = ?", (slug,))
+        if cur.fetchone():
+            slug = f"{slug}-{uuid.uuid4().hex[:6]}"
         cur.execute("""
-            INSERT INTO blog_posts (title, category, excerpt, content, image_url, is_published, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            INSERT INTO blog_posts (title, slug, category, excerpt, content, image_url, is_published, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """, (
             payload.title,
+            slug,
             payload.category,
             payload.excerpt,
             payload.content,
@@ -1121,6 +1535,7 @@ def admin_create_blog_post(payload: BlogPostCreateRequest, authorization: Option
             1 if payload.is_published is None else int(payload.is_published)
         ))
         conn.commit()
+        log_audit_event("blog_create", "admin", f"Created blog post {payload.title} ({slug})")
         return {"success": True, "id": cur.lastrowid}
     except Exception as e:
         conn.rollback()
@@ -1141,11 +1556,19 @@ def admin_update_blog_post(post_id: int, payload: BlogPostUpdateRequest, authori
             if value is not None:
                 fields.append(f"{field_name} = ?")
                 params.append(value)
+        if payload.title:
+            slug = slugify(payload.title)
+            cur.execute("SELECT id FROM blog_posts WHERE slug = ? AND id != ?", (slug, post_id))
+            if cur.fetchone():
+                slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+            fields.append("slug = ?")
+            params.append(slug)
         if fields:
             fields.append("updated_at = datetime('now')")
             params.append(post_id)
             cur.execute(f"UPDATE blog_posts SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()
+        log_audit_event("blog_update", "admin", f"Updated blog post {post_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -1155,12 +1578,13 @@ def admin_update_blog_post(post_id: int, payload: BlogPostUpdateRequest, authori
 
 @app.post("/api/admin/blog/{post_id}/toggle")
 def admin_toggle_blog_post(post_id: int, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE blog_posts SET is_published = 1 - is_published, updated_at = datetime('now') WHERE id = ?", (post_id,))
         conn.commit()
+        log_audit_event("blog_toggle", staff.get("username"), f"Toggled blog post {post_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -1200,7 +1624,7 @@ def admin_list_sections(authorization: Optional[str] = Header(None)):
 
 @app.post("/api/admin/sections")
 def admin_create_section(payload: HomeSectionCreateRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1223,6 +1647,7 @@ def admin_create_section(payload: HomeSectionCreateRequest, authorization: Optio
             int(payload.is_active if payload.is_active is not None else 1)
         ))
         conn.commit()
+        log_audit_event("section_create", staff.get("username"), f"Created section {payload.title}")
         return {"success": True, "id": cur.lastrowid}
     except Exception as e:
         conn.rollback()
@@ -1232,7 +1657,7 @@ def admin_create_section(payload: HomeSectionCreateRequest, authorization: Optio
 
 @app.put("/api/admin/sections/{section_id}")
 def admin_update_section(section_id: int, payload: HomeSectionUpdateRequest, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1251,6 +1676,7 @@ def admin_update_section(section_id: int, payload: HomeSectionUpdateRequest, aut
             params.append(section_id)
             cur.execute(f"UPDATE home_sections SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()
+        log_audit_event("section_update", staff.get("username"), f"Updated section {section_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -1260,7 +1686,7 @@ def admin_update_section(section_id: int, payload: HomeSectionUpdateRequest, aut
 
 @app.post("/api/admin/sections/{section_id}/toggle")
 def admin_toggle_section(section_id: int, authorization: Optional[str] = Header(None)):
-    require_admin(authorization)
+    staff = require_admin(authorization)
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1269,6 +1695,7 @@ def admin_toggle_section(section_id: int, authorization: Optional[str] = Header(
             (section_id,)
         )
         conn.commit()
+        log_audit_event("section_toggle", staff.get("username"), f"Toggled section {section_id}")
         return {"success": True}
     except Exception as e:
         conn.rollback()
@@ -1294,8 +1721,12 @@ def forgot_password(payload: ForgotPasswordRequest):
         token, expires_at = create_password_reset(conn, row["id"])
         conn.commit()
 
-        # In production, email this token or a reset link.
-        return {"success": True, "reset_token": token, "expires_at": expires_at}
+        cur.execute("SELECT email FROM users WHERE id = ?", (row["id"],))
+        user_row = cur.fetchone()
+        delivered = False
+        if user_row and user_row["email"]:
+            delivered = send_reset_email(user_row["email"], token, expires_at)
+        return {"success": True, "delivery": "email" if delivered else "pending"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1429,10 +1860,23 @@ def create_order(order: OrderCreate):
         cur.execute("""
             INSERT INTO online_orders (
                 order_number, customer_id, subtotal, delivery_cost, total_amount,
-                delivery_address, delivery_method, customer_notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (order_number, customer_id, subtotal, delivery_cost, total, 
-              order.delivery_address, order.delivery_zone, order.customer_notes))
+                delivery_address, delivery_method, customer_notes, source,
+                status, payment_status, payment_method, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        """, (
+            order_number,
+            customer_id,
+            subtotal,
+            delivery_cost,
+            total,
+            order.delivery_address,
+            order.delivery_zone,
+            order.customer_notes,
+            order.source,
+            "AWAITING_WHATSAPP",
+            "UNPAID",
+            "WHATSAPP"
+        ))
         
         order_id = cur.lastrowid
         
@@ -1454,7 +1898,6 @@ def create_order(order: OrderCreate):
         
         conn.commit()
 
-        from config import WHATSAPP_NUMBER
         message = (
             f"New Order: {order_number}\n"
             f"Customer: {order.customer_name}\n"
@@ -1475,6 +1918,8 @@ def create_order(order: OrderCreate):
             "success": True,
             "order_number": order_number,
             "total_amount": total,
+            "status": "AWAITING_WHATSAPP",
+            "payment_status": "UNPAID",
             "whatsapp_url": whatsapp_url
         }
     

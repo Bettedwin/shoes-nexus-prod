@@ -21,6 +21,14 @@ MPESA_PAYBILL = "522533"
 MPESA_ACCOUNT = "7776553"
 ACCOUNT_NAME = "Shoes Nexus"
 
+# Email (SMTP) settings for password reset
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_FROM = os.getenv("SMTP_FROM", BUSINESS_EMAIL)
+SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
+
 # Delivery zones
 DELIVERY_ZONES = [
     {
