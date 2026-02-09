@@ -3152,6 +3152,43 @@ def operating_expenses_entry():
 
         st.success("✅ Operating expenses recorded successfully")
 
+    st.divider()
+    st.subheader("✏️ Edit Operating Expense")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, expense_date, category, description, amount
+        FROM operating_expenses
+        ORDER BY expense_date DESC, id DESC
+        LIMIT 50
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        st.info("No operating expenses to edit yet.")
+    else:
+        options = {f"#{r[0]} • {r[1]} • {r[2]} • KES {int(r[4])}": r for r in rows}
+        selected_label = st.selectbox("Select expense to edit", list(options.keys()))
+        selected = options[selected_label]
+        edit_date = st.date_input("Expense Date (edit)", pd.to_datetime(selected[1]), key="op_edit_date")
+        edit_category = st.text_input("Category (edit)", selected[2] or "", key="op_edit_category")
+        edit_description = st.text_input("Description (edit)", selected[3] or "", key="op_edit_description")
+        edit_amount = st.number_input("Amount (KES) (edit)", min_value=0, step=100, value=int(selected[4]), key="op_edit_amount")
+        if st.button("✅ Update Expense"):
+            if edit_amount <= 0:
+                st.error("❌ Expense amount must be greater than 0.")
+            else:
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE operating_expenses
+                    SET expense_date = ?, category = ?, description = ?, amount = ?
+                    WHERE id = ?
+                """, (edit_date.strftime("%Y-%m-%d"), edit_category, edit_description, int(edit_amount), int(selected[0])))
+                conn.commit()
+                conn.close()
+                st.success("✅ Expense updated")
+
 # Home Expenses (Manager/Admin)
 def home_expenses_entry():
     st.subheader("🏠 Home Expenses")
@@ -3223,6 +3260,43 @@ def home_expenses_entry():
         conn.commit()
         conn.close()
         st.success("✅ Home expense recorded")
+
+    st.divider()
+    st.subheader("✏️ Edit Home Expense")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, expense_date, category, description, amount
+        FROM home_expenses
+        ORDER BY expense_date DESC, id DESC
+        LIMIT 50
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        st.info("No home expenses to edit yet.")
+    else:
+        options = {f"#{r[0]} • {r[1]} • {r[2]} • KES {int(r[4])}": r for r in rows}
+        selected_label = st.selectbox("Select home expense to edit", list(options.keys()))
+        selected = options[selected_label]
+        edit_date = st.date_input("Home Expense Date (edit)", pd.to_datetime(selected[1]), key="home_edit_date")
+        edit_category = st.text_input("Category (edit)", selected[2] or "", key="home_edit_category")
+        edit_description = st.text_input("Description (edit)", selected[3] or "", key="home_edit_description")
+        edit_amount = st.number_input("Amount (KES) (edit)", min_value=0, step=100, value=int(selected[4]), key="home_edit_amount")
+        if st.button("✅ Update Home Expense"):
+            if edit_amount <= 0:
+                st.error("❌ Amount must be greater than 0.")
+            else:
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE home_expenses
+                    SET expense_date = ?, category = ?, description = ?, amount = ?
+                    WHERE id = ?
+                """, (edit_date.strftime("%Y-%m-%d"), edit_category, edit_description, int(edit_amount), int(selected[0])))
+                conn.commit()
+                conn.close()
+                st.success("✅ Home expense updated")
 
 def home_expenses_summary(start_date=None, end_date=None):
     st.subheader("🏠 Home Expenses Summary")
