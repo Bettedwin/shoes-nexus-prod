@@ -249,6 +249,25 @@ export default function ShoesNexusEcommerce() {
     return html;
   };
 
+  const stripBrandNames = (text) => {
+    if (!text) return '';
+    const productBrands = Array.from(new Set((products || []).map(p => (p.brand || '').trim()).filter(Boolean)));
+    const baseBrands = [
+      'zara', 'hermes', 'primark', 'ego', 'nike', 'puma', 'jm',
+      'forever 21', 'erynn paris', 'rock & candy', 'masai', 'fluffy',
+      'eternal & love', '4you'
+    ];
+    const brands = Array.from(new Set([...baseBrands, ...productBrands.map(b => b.toLowerCase())]))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    let cleaned = text;
+    brands.forEach((brand) => {
+      const pattern = new RegExp(`\\b${brand.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\\\$&')}\\b`, 'gi');
+      cleaned = cleaned.replace(pattern, '').replace(/\s{2,}/g, ' ').trim();
+    });
+    return cleaned;
+  };
+
   // Rotate featured picks on the hour
   useEffect(() => {
     const updateHourKey = () => setFeaturedHourKey(Math.floor(Date.now() / 3600000));
@@ -2430,10 +2449,10 @@ If it didn’t open, please contact us via WhatsApp.
                 )}
               </div>
               <div className="text-sm text-gray-500 mb-2">{selectedBlog.created_at}</div>
-              <h1 className="text-3xl sm:text-4xl font-bold mb-4">{selectedBlog.title}</h1>
+              <h1 className="text-3xl sm:text-4xl font-bold mb-4">{stripBrandNames(selectedBlog.title)}</h1>
               <div
                 className="prose max-w-none text-gray-700"
-                dangerouslySetInnerHTML={{ __html: renderBlogContent(selectedBlog.content || selectedBlog.excerpt || '') }}
+                dangerouslySetInnerHTML={{ __html: renderBlogContent(stripBrandNames(selectedBlog.content || selectedBlog.excerpt || '')) }}
               />
             </div>
           ) : (
@@ -4417,8 +4436,8 @@ If it didn’t open, please contact us via WhatsApp.
                     </div>
                     <div className="p-4">
                       <div className="text-xs text-gray-500 mb-2">{post.created_at}</div>
-                      <h4 className="font-semibold text-white mb-2">{post.title}</h4>
-                      <p className="text-sm text-gray-400 line-clamp-3">{post.excerpt || post.content}</p>
+                      <h4 className="font-semibold text-white mb-2">{stripBrandNames(post.title)}</h4>
+                      <p className="text-sm text-gray-400 line-clamp-3">{stripBrandNames(post.excerpt || post.content)}</p>
                     </div>
                   </div>
                 ))}
