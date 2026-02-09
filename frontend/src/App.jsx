@@ -338,10 +338,21 @@ export default function ShoesNexusEcommerce() {
       setAdminError('');
       try {
         const headers = { Authorization: `Bearer ${authToken}` };
-        const [productsRes, staffRes, salesRes, ordersRes, blogRes, sectionsRes, usersRes, lowStockRes, auditRes] = await Promise.all([
+        const [productsRes, staffRes, salesRes] = await Promise.all([
           fetch(`${API_BASE_URL}/api/admin/products`, { headers }),
           fetch(`${API_BASE_URL}/api/admin/staff`, { headers }),
-          fetch(`${API_BASE_URL}/api/admin/sales`, { headers }),
+          fetch(`${API_BASE_URL}/api/admin/sales`, { headers })
+        ]);
+        if (!productsRes.ok || !staffRes.ok || !salesRes.ok) {
+          const errText = await productsRes.text();
+          throw new Error(errText || 'Failed to load admin data.');
+        }
+        const [products, staff, sales] = await Promise.all([
+          productsRes.json(),
+          staffRes.json(),
+          salesRes.json()
+        ]);
+        const optional = await Promise.allSettled([
           fetch(`${API_BASE_URL}/api/admin/orders`, { headers }),
           fetch(`${API_BASE_URL}/api/admin/blog`, { headers }),
           fetch(`${API_BASE_URL}/api/admin/sections`, { headers }),
@@ -349,20 +360,14 @@ export default function ShoesNexusEcommerce() {
           fetch(`${API_BASE_URL}/api/admin/low-stock`, { headers }),
           fetch(`${API_BASE_URL}/api/admin/audit-log`, { headers })
         ]);
-        if (!productsRes.ok || !staffRes.ok || !salesRes.ok) {
-          const errText = await productsRes.text();
-          throw new Error(errText || 'Failed to load admin data.');
-        }
-        const [products, staff, sales, orders, blogPosts, sections, users, lowStock, auditLog] = await Promise.all([
-          productsRes.json(),
-          staffRes.json(),
-          salesRes.json(),
-          ordersRes.ok ? ordersRes.json() : [],
-          blogRes.ok ? blogRes.json() : [],
-          sectionsRes.ok ? sectionsRes.json() : [],
-          usersRes.ok ? usersRes.json() : [],
-          lowStockRes.ok ? lowStockRes.json() : [],
-          auditRes.ok ? auditRes.json() : []
+        const [ordersRes, blogRes, sectionsRes, usersRes, lowStockRes, auditRes] = optional.map(entry => entry.status === 'fulfilled' ? entry.value : null);
+        const [orders, blogPosts, sections, users, lowStock, auditLog] = await Promise.all([
+          ordersRes && ordersRes.ok ? ordersRes.json() : [],
+          blogRes && blogRes.ok ? blogRes.json() : [],
+          sectionsRes && sectionsRes.ok ? sectionsRes.json() : [],
+          usersRes && usersRes.ok ? usersRes.json() : [],
+          lowStockRes && lowStockRes.ok ? lowStockRes.json() : [],
+          auditRes && auditRes.ok ? auditRes.json() : []
         ]);
         setAdminProducts(products);
         setAdminStaff(staff);
