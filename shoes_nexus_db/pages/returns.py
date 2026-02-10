@@ -427,6 +427,10 @@ elif st.session_state.role == "Admin":
                         
                         sold_qty = to_int(result[0])
                         already_returned = to_int(result[1])
+                        is_brokered = (
+                            str(row["brand"]).strip().lower() == "brokered"
+                            and str(row["model"]).strip().lower() == "brokered sale"
+                        )
                         # Validate (account for other pending requests)
                         return_qty = to_int(row["return_qty"])
                         cur.execute("""
@@ -438,7 +442,7 @@ elif st.session_state.role == "Admin":
                               AND id != ?
                         """, (to_int(row["sale_id"]), to_int(request_id)))
                         pending_other = to_int(cur.fetchone()[0])
-                        remaining_qty = sold_qty - already_returned - pending_other
+                        remaining_qty = sold_qty - already_returned - (0 if is_brokered else pending_other)
                         if return_qty > remaining_qty:
                             st.error(f"❌ Cannot return more than sold quantity. Remaining: {remaining_qty} (Sold {sold_qty}, Returned {already_returned}, Pending {pending_other})")
                             conn.close()
@@ -454,20 +458,21 @@ elif st.session_state.role == "Admin":
                             WHERE id = ?
                         """, (new_returned, new_status, to_int(row["sale_id"])))
                         
-                        # Restore stock
-                        cur.execute("""
-                            INSERT INTO product_sizes (product_id, size, quantity)
-                            VALUES (?, ?, 0)
-                            ON CONFLICT(product_id, size) DO NOTHING
-                        """, (to_int(row["product_id"]), str(row["size"])))
-                        
-                        cur.execute("""
-                            UPDATE product_sizes
-                            SET quantity = quantity + ?
-                            WHERE product_id = ? AND size = ?
-                        """, (return_qty, to_int(row["product_id"]), str(row["size"])))
-                        
-                        sync_product_stock(cur, to_int(row["product_id"]))
+                        # Restore stock (skip for brokered sales)
+                        if not is_brokered:
+                            cur.execute("""
+                                INSERT INTO product_sizes (product_id, size, quantity)
+                                VALUES (?, ?, 0)
+                                ON CONFLICT(product_id, size) DO NOTHING
+                            """, (to_int(row["product_id"]), str(row["size"])))
+                            
+                            cur.execute("""
+                                UPDATE product_sizes
+                                SET quantity = quantity + ?
+                                WHERE product_id = ? AND size = ?
+                            """, (return_qty, to_int(row["product_id"]), str(row["size"])))
+                            
+                            sync_product_stock(cur, to_int(row["product_id"]))
                         
                         # Approve return request
                         cur.execute("""
