@@ -384,6 +384,95 @@ def pos_screen(show_prices=False):
             finally:
                 conn.close()
 
+    # Admin-only cancel sale (with safeguards)
+    if st.session_state.get("role") == "Admin":
+        with st.expander("🧨 Cancel Sale (Admin Only)", expanded=False):
+            st.warning("This will permanently remove a sale and reverse stock (if applicable).")
+            sale_id = st.number_input("Sale ID", min_value=1, step=1, key="cancel_sale_id")
+            confirm_text = st.text_input("Type CANCEL SALE to confirm", key="cancel_sale_confirm")
+            confirm_check = st.checkbox("I understand this cannot be undone", key="cancel_sale_check")
+
+            if st.button("❌ Cancel Sale", type="primary"):
+                if confirm_text.strip().upper() != "CANCEL SALE" or not confirm_check:
+                    st.error("❌ Confirmation required.")
+                    st.stop()
+
+                conn = get_db()
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        """
+                        SELECT product_id, size, quantity
+                        FROM sales
+                        WHERE id = ?
+                        """,
+                        (int(sale_id),),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        st.error("❌ Sale not found.")
+                        conn.close()
+                        st.stop()
+
+                    product_id, size, quantity = row
+
+                    # Remove related pending return requests for this sale
+                    cur.execute(
+                        """
+                        DELETE FROM returns_exchanges
+                        WHERE sale_id = ? AND status = 'PENDING'
+                        """,
+                        (int(sale_id),),
+                    )
+
+                    # Restore stock if size is real (skip brokered)
+                    if size and str(size).upper() != "N/A":
+                        cur.execute(
+                            """
+                            INSERT INTO product_sizes (product_id, size, quantity)
+                            VALUES (?, ?, 0)
+                            ON CONFLICT(product_id, size) DO NOTHING
+                            """,
+                            (int(product_id), str(size)),
+                        )
+                        cur.execute(
+                            """
+                            UPDATE product_sizes
+                            SET quantity = quantity + ?
+                            WHERE product_id = ? AND size = ?
+                            """,
+                            (int(quantity), int(product_id), str(size)),
+                        )
+                        sync_product_stock(cur, int(product_id))
+
+                    # Delete the sale
+                    cur.execute("DELETE FROM sales WHERE id = ?", (int(sale_id),))
+
+                    # Log activity
+                    cur.execute(
+                        """
+                        INSERT INTO activity_log
+                        (event_type, reference_id, role, username, message)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            "SALE_CANCELLED",
+                            int(sale_id),
+                            "Admin",
+                            st.session_state.username,
+                            f"Cancelled sale ID {int(sale_id)}",
+                        ),
+                    )
+
+                    conn.commit()
+                    st.success("✅ Sale cancelled.")
+                    st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    st.error(f"❌ Error cancelling sale: {e}")
+                finally:
+                    conn.close()
+
     conn = get_db()
 
     # ----------------------------
