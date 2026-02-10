@@ -64,6 +64,7 @@ def ensure_net_sales_view():
         END AS net_cost,
         s.payment_method,
         s.source,
+        s.notes,
         s.sale_date
     FROM sales s
     WHERE s.return_status != 'FULL';
@@ -934,7 +935,8 @@ def admin_reports():
             s.net_revenue AS revenue,
             s.net_cost AS cost,
             s.sale_date,
-            s.payment_method
+            s.payment_method,
+            s.notes
         FROM net_sales s
         JOIN products p ON p.id = s.product_id
         """,
@@ -956,6 +958,18 @@ def admin_reports():
     # Apply date filter
     mask = (sales["sale_date"] >= start_date) & (sales["sale_date"] <= end_date)
     sales = sales.loc[mask]
+
+    # Filter brokered sales if needed
+    sales_type = st.selectbox(
+        "Sales Type",
+        ["All sales", "Regular only", "Brokered only"],
+        key="sales_type_filter"
+    )
+    is_brokered = sales["notes"].str.contains("Brokered Sale", case=False, na=False)
+    if sales_type == "Regular only":
+        sales = sales.loc[~is_brokered]
+    elif sales_type == "Brokered only":
+        sales = sales.loc[is_brokered]
 
     if sales.empty:
         st.warning("No sales found for selected period.")
@@ -1017,10 +1031,13 @@ def admin_reports():
     # 🧾 Detailed Sales Table
     # ----------------------------
     st.subheader("🧾 Detailed Sales")
+    sales["type"] = sales["notes"].str.contains("Brokered Sale", case=False, na=False).map(
+        lambda x: "Brokered" if x else "Regular"
+    )
     st.dataframe(
         sales[
             ["product_id", "brand", "model",
-            "quantity", "revenue", "payment_method", "notes", "sale_date"]
+            "quantity", "revenue", "payment_method", "type", "notes", "sale_date"]
         ],
         hide_index=True,
         use_container_width=True,
@@ -3861,6 +3878,9 @@ def manager_home():
         reduce_existing_product_stock("Manager")
         add_stock_in_transit("Manager")
         view_stock_in_transit()
+
+    with st.expander("💵 Operating Expenses", expanded=False):
+        operating_expenses_entry()
 
     with st.expander("📢 Admin Updates", expanded=False):
         manager_view_admin_updates()
