@@ -2004,8 +2004,8 @@ def admin_view_activity_log():
         st.info("No activity recorded yet.")
         return
 
-    # Ensure datetime
-    df["created_at"] = pd.to_datetime(df["created_at"])
+    # Ensure datetime (handle mixed formats safely)
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", format="mixed")
 
     # ----------------------------
     # FILTERS (no nested expander)
