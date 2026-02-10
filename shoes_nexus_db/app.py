@@ -496,12 +496,30 @@ def pos_screen(show_prices=False):
         products_df["color"] + ")"
     )
 
+    search_query = st.text_input("Search item in inventory", placeholder="Type brand, model, or color...")
+    if search_query:
+        q = search_query.strip().lower()
+        products_df = products_df[
+            products_df["brand"].str.lower().str.contains(q)
+            | products_df["model"].str.lower().str.contains(q)
+            | products_df["color"].str.lower().str.contains(q)
+        ]
+        if products_df.empty:
+            st.warning("No products match your search.")
+            conn.close()
+            return
+
     product_map = dict(zip(products_df["display"], products_df["id"]))
+    product_options = ["— Select product —"] + list(product_map.keys())
 
     selected_product = st.selectbox(
         "Select Product",
-        product_map.keys()
+        product_options
     )
+
+    if selected_product == "— Select product —":
+        conn.close()
+        return
 
     product_id = product_map[selected_product]
     product = products_df[products_df["id"] == product_id].iloc[0]

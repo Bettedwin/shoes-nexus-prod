@@ -389,7 +389,7 @@ elif st.session_state.role == "Admin":
             )
             
             row = df[df["request_id"] == request_id].iloc[0]
-            
+
             st.markdown(f"""
             <div class="request-card">
                 <h4>📦 Return Request Details</h4>
@@ -405,7 +405,88 @@ elif st.session_state.role == "Admin":
                 "📝 Admin Notes",
                 placeholder="Your decision reason..."
             )
-            
+
+            st.markdown("**Cancel Pending Returns**")
+            cancel_confirm = st.text_input(
+                "Type CANCEL PENDING to enable cancel",
+                key="cancel_pending_confirm"
+            )
+            cancel_cols = st.columns(2)
+            with cancel_cols[0]:
+                if st.button("🗑️ Cancel This Pending Return", use_container_width=True):
+                    if cancel_confirm.strip().upper() != "CANCEL PENDING":
+                        st.error("❌ Confirmation required.")
+                    else:
+                        cur = conn.cursor()
+                        try:
+                            cur.execute(
+                                """
+                                UPDATE returns_exchanges
+                                SET status = 'CANCELLED',
+                                    notes = COALESCE(notes, '') || ' | ADMIN: Cancelled pending'
+                                WHERE id = ? AND status = 'PENDING'
+                                """,
+                                (to_int(request_id),)
+                            )
+                            cur.execute(
+                                """
+                                INSERT INTO activity_log
+                                (event_type, reference_id, role, username, message)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    "RETURN_CANCELLED",
+                                    to_int(request_id),
+                                    "Admin",
+                                    st.session_state.username,
+                                    f"Cancelled pending return #{request_id}"
+                                )
+                            )
+                            conn.commit()
+                            st.success("✅ Pending return cancelled.")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"❌ Error: {e}")
+            with cancel_cols[1]:
+                if st.button("🧹 Cancel All Pending for This Sale", use_container_width=True):
+                    if cancel_confirm.strip().upper() != "CANCEL PENDING":
+                        st.error("❌ Confirmation required.")
+                    else:
+                        cur = conn.cursor()
+                        try:
+                            cur.execute(
+                                """
+                                UPDATE returns_exchanges
+                                SET status = 'CANCELLED',
+                                    notes = COALESCE(notes, '') || ' | ADMIN: Cancelled pending'
+                                WHERE sale_id = ? AND status = 'PENDING'
+                                """,
+                                (to_int(row["sale_id"]),)
+                            )
+                            cur.execute(
+                                """
+                                INSERT INTO activity_log
+                                (event_type, reference_id, role, username, message)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    "RETURN_CANCELLED",
+                                    to_int(row["sale_id"]),
+                                    "Admin",
+                                    st.session_state.username,
+                                    f"Cancelled all pending returns for sale {to_int(row['sale_id'])}"
+                                )
+                            )
+                            conn.commit()
+                            st.success("✅ All pending returns for this sale cancelled.")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            conn.rollback()
+                            st.error(f"❌ Error: {e}")
+
             col1, col2 = st.columns(2)
             
             with col1:
