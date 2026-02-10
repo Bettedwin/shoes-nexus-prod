@@ -974,7 +974,7 @@ def stock_alerts():
     conn.close()
 
     df["stock"] = df["stock"].apply(
-        lambda x: int.from_bytes(x, "little") if isinstance(x, bytes) else int(x)
+        lambda x: 0 if pd.isna(x) else (int.from_bytes(x, "little") if isinstance(x, bytes) else int(x))
     )
 
     alerts = df[df["stock"] <= df["reorder_level"]]
