@@ -343,41 +343,46 @@ def pos_screen(show_prices=False):
             revenue = int(broker_profit) * int(broker_qty)
             conn = get_db()
             cur = conn.cursor()
-            cur.execute(
-                """
-                INSERT INTO sales
-                (product_id, size, quantity, revenue, cost, payment_method, source, sale_date, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), ?)
-                """,
-                (
-                    brokered_product_id,
-                    "N/A",
-                    int(broker_qty),
-                    revenue,
-                    0,
-                    str(broker_payment),
-                    "Brokered",
-                    f"Brokered Sale | {broker_category} | {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)}. {broker_notes}".strip()
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO sales
+                    (product_id, size, quantity, revenue, cost, payment_method, source, sale_date, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), ?)
+                    """,
+                    (
+                        brokered_product_id,
+                        "N/A",
+                        int(broker_qty),
+                        revenue,
+                        0,
+                        str(broker_payment),
+                        "Brokered",
+                        f"Brokered Sale | {broker_category} | {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)}. {broker_notes}".strip()
+                    )
                 )
-            )
-            cur.execute(
-                """
-                INSERT INTO activity_log
-                (event_type, reference_id, role, username, message)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    "BROKERED_SALE",
-                    brokered_product_id,
-                    st.session_state.role if "role" in st.session_state else "Staff",
-                    st.session_state.username if "username" in st.session_state else "staff",
-                    f"Brokered sale recorded: {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)} | Qty {int(broker_qty)}"
+                cur.execute(
+                    """
+                    INSERT INTO activity_log
+                    (event_type, reference_id, role, username, message)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "BROKERED_SALE",
+                        brokered_product_id,
+                        st.session_state.role if "role" in st.session_state else "Staff",
+                        st.session_state.username if "username" in st.session_state else "staff",
+                        f"Brokered sale recorded: {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)} | Qty {int(broker_qty)}"
+                    )
                 )
-            )
-            conn.commit()
-            conn.close()
-            st.success("✅ Brokered sale recorded")
-            st.rerun()
+                conn.commit()
+                st.success("✅ Brokered sale recorded")
+                st.rerun()
+            except Exception as e:
+                conn.rollback()
+                st.error(f"❌ Error recording brokered sale: {e}")
+            finally:
+                conn.close()
 
     conn = get_db()
 

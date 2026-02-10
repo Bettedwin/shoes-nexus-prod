@@ -10,6 +10,37 @@ from datetime import datetime, date
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
+def ensure_sales_source_column():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE sales ADD COLUMN source TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
+    conn.close()
+
+def get_or_create_brokered_product():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id FROM products
+        WHERE category = 'External' AND brand = 'Brokered' AND model = 'Brokered Sale'
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if row:
+        conn.close()
+        return int(row[0])
+    cur.execute("""
+        INSERT INTO products (category, brand, model, color, buying_price, selling_price, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+    """, ("External", "Brokered", "Brokered Sale", "N/A", 0, 0))
+    brokered_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(brokered_id)
+
 # ============================================
 # PAGE SETUP
 # ============================================
@@ -22,6 +53,8 @@ st.title("📅 Backdate Historical Sales")
 if "role" not in st.session_state or st.session_state.role not in ["Admin", "Manager"]:
     st.error("⛔ Access Denied - Admin or Manager role required")
     st.stop()
+
+ensure_sales_source_column()
 
 st.info("ℹ️ Use this module to enter historical sales data")
 
@@ -121,6 +154,14 @@ else:
 # ============================================
 st.subheader("Step 3: Sale Details")
 
+sale_type = st.radio(
+    "Sale Type",
+    ["Regular Sale", "Brokered Sale (Profit Only)"],
+    horizontal=True
+)
+if sale_type == "Brokered Sale (Profit Only)":
+    st.info("Brokered sale ignores selected product/size and records profit-only.")
+
 col1, col2 = st.columns(2)
 
 with col1:
@@ -137,6 +178,14 @@ with col2:
         ["Cash", "M-Pesa Paybill"]
     )
 
+source = st.selectbox(
+    "Customer Source",
+    ["Instagram", "TikTok", "Walk-in", "Website", "Twitter", "Referral", "Other"]
+)
+source_other = ""
+if source == "Other":
+    source_other = st.text_input("Specify Source")
+
 # Optional notes
 notes = st.text_area(
     "📝 Notes (optional)",
@@ -144,13 +193,26 @@ notes = st.text_area(
     help="Example: Repeat customer, Walk-in, etc."
 )
 
+broker_profit = 0
+if sale_type == "Brokered Sale (Profit Only)":
+    broker_profit = st.number_input(
+        "Profit per item (KES)",
+        min_value=0,
+        step=50,
+        value=0
+    )
+
 # ============================================
 # STEP 4: CALCULATE TOTALS
 # ============================================
 st.subheader("Step 4: Review & Submit")
 
-revenue = int(product['selling_price']) * quantity
-cost = int(product['buying_price']) * quantity
+if sale_type == "Brokered Sale (Profit Only)":
+    revenue = int(broker_profit) * int(quantity)
+    cost = 0
+else:
+    revenue = int(product['selling_price']) * quantity
+    cost = int(product['buying_price']) * quantity
 profit = revenue - cost
 
 col1, col2, col3 = st.columns(3)
@@ -172,42 +234,64 @@ if st.button("💾 Record Historical Sale", type="primary"):
     cur = conn.cursor()
     
     try:
-        # 1. Check if enough stock (warning only, don't block)
-        cur.execute("""
-            SELECT quantity FROM product_sizes
-            WHERE product_id = ? AND size = ?
-        """, (product_id, size))
-        
-        stock_row = cur.fetchone()
-        current_stock = stock_row[0] if stock_row else 0
-        
-        if quantity > current_stock:
-            st.warning(f"⚠️ Recording sale of {quantity} but only {current_stock} in stock. You may need to backdate stock addition.")
-        
-        # 2. Insert the sale with the selected historical date
-        cur.execute("""
-            INSERT INTO sales 
-            (product_id, size, quantity, revenue, cost, payment_method, sale_date, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            int(product_id),
-            str(size),
-            int(quantity),
-            int(revenue),
-            int(cost),
-            str(payment_method),
-            str(sale_date),  # Historical date selected by user
-            notes
-        ))
+        source_value = source_other.strip() if source == "Other" else source
+
+        if sale_type == "Brokered Sale (Profit Only)":
+            brokered_product_id = get_or_create_brokered_product()
+            cur.execute("""
+                INSERT INTO sales 
+                (product_id, size, quantity, revenue, cost, payment_method, source, sale_date, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                int(brokered_product_id),
+                "N/A",
+                int(quantity),
+                int(revenue),
+                int(cost),
+                str(payment_method),
+                str(source_value),
+                str(sale_date),
+                f"Brokered Sale | {notes}".strip()
+            ))
+        else:
+            # 1. Check if enough stock (warning only, don't block)
+            cur.execute("""
+                SELECT quantity FROM product_sizes
+                WHERE product_id = ? AND size = ?
+            """, (product_id, size))
+            
+            stock_row = cur.fetchone()
+            current_stock = stock_row[0] if stock_row else 0
+            
+            if quantity > current_stock:
+                st.warning(f"⚠️ Recording sale of {quantity} but only {current_stock} in stock. You may need to backdate stock addition.")
+            
+            # 2. Insert the sale with the selected historical date
+            cur.execute("""
+                INSERT INTO sales 
+                (product_id, size, quantity, revenue, cost, payment_method, source, sale_date, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                int(product_id),
+                str(size),
+                int(quantity),
+                int(revenue),
+                int(cost),
+                str(payment_method),
+                str(source_value),
+                str(sale_date),  # Historical date selected by user
+                notes
+            ))
         
         sale_id = cur.lastrowid
         
-        # 3. Deduct from stock
-        cur.execute("""
-            UPDATE product_sizes
-            SET quantity = quantity - ?
-            WHERE product_id = ? AND size = ?
-        """, (int(quantity), int(product_id), str(size)))
+        # 3. Deduct from stock (regular sales only)
+        if sale_type != "Brokered Sale (Profit Only)":
+            cur.execute("""
+                UPDATE product_sizes
+                SET quantity = quantity - ?
+                WHERE product_id = ? AND size = ?
+            """, (int(quantity), int(product_id), str(size)))
         
         # 4. Activity log
         cur.execute("""
@@ -219,7 +303,7 @@ if st.button("💾 Record Historical Sale", type="primary"):
             sale_id,
             st.session_state.role,
             st.session_state.username,
-            f"Backdated sale to {sale_date}: {selected_product}, Size {size}, Qty {quantity}"
+            f"Backdated sale to {sale_date}: {selected_product if sale_type != 'Brokered Sale (Profit Only)' else 'Brokered Sale'}, Qty {quantity}"
         ))
         
         conn.commit()
