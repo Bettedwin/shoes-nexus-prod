@@ -16,6 +16,89 @@ st.title("🧾 Shoes Nexus POS System")
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
+def get_or_create_brokered_product():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id FROM products
+        WHERE category = 'External' AND brand = 'Brokered' AND model = 'Brokered Sale'
+        LIMIT 1
+    """)
+    row = cur.fetchone()
+    if row:
+        conn.close()
+        return int(row[0])
+    cur.execute("""
+        INSERT INTO products (category, brand, model, color, buying_price, selling_price, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+    """, ("External", "Brokered", "Brokered Sale", "N/A", 0, 0))
+    brokered_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return int(brokered_id)
+
+# ----------------------------
+# BROKERED SALE (PROFIT ONLY)
+# ----------------------------
+with st.expander("🤝 Brokered Sale (Profit Only)", expanded=False):
+    broker_category = st.selectbox("Category", ["Men", "Women", "Accessories", "Other"], key="broker_category")
+    broker_brand = st.text_input("Brand (e.g. Casio, Timberland)", key="broker_brand")
+    broker_model = st.text_input("Model / Item", key="broker_model")
+    broker_color = st.text_input("Color / Variant", key="broker_color")
+    broker_profit = st.number_input("Profit per item (KES)", min_value=0, step=50, key="broker_profit")
+    broker_qty = st.number_input("Quantity", min_value=1, step=1, key="broker_qty")
+    broker_total = int(broker_profit) * int(broker_qty)
+    st.caption(f"Total profit (KES): {broker_total}")
+    broker_payment = st.radio("Payment Method", ["Cash", "M-Pesa Paybill"], key="broker_payment")
+    broker_notes = st.text_area("Notes (optional)", key="broker_notes")
+
+    if st.button("✅ Record Brokered Sale"):
+        if broker_profit <= 0:
+            st.error("❌ Profit must be greater than 0.")
+            st.stop()
+        if not broker_model.strip():
+            st.error("❌ Item description is required.")
+            st.stop()
+        brokered_product_id = get_or_create_brokered_product()
+        revenue = int(broker_profit) * int(broker_qty)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO sales
+            (product_id, size, quantity, revenue, cost, payment_method, sale_date, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                brokered_product_id,
+                "N/A",
+                int(broker_qty),
+                revenue,
+                0,
+                str(broker_payment),
+                datetime.now().strftime("%Y-%m-%d"),
+                f"Brokered Sale | {broker_category} | {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)}. {broker_notes}".strip()
+            )
+        )
+        cur.execute(
+            """
+            INSERT INTO activity_log
+            (event_type, reference_id, role, username, message)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "BROKERED_SALE",
+                brokered_product_id,
+                st.session_state.role if "role" in st.session_state else "Staff",
+                st.session_state.username if "username" in st.session_state else "staff",
+                f"Brokered sale recorded: {broker_brand} {broker_model} {broker_color} | Profit/item KES {int(broker_profit)} | Qty {int(broker_qty)}"
+            )
+        )
+        conn.commit()
+        conn.close()
+        st.success("✅ Brokered sale recorded")
+        st.rerun()
+
 # ----------------------------
 # LOAD PRODUCTS
 # ----------------------------
