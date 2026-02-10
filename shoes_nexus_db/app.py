@@ -3147,6 +3147,22 @@ def operating_expenses_entry():
             )
         )
 
+        # Log activity
+        cur.execute(
+            """
+            INSERT INTO activity_log
+            (event_type, reference_id, role, username, message)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "OPERATING_EXPENSE",
+                cur.lastrowid,
+                st.session_state.role,
+                st.session_state.username,
+                f"Operating expense: {category} - KES {int(amount)}"
+            )
+        )
+
         conn.commit()
         conn.close()
 
@@ -3257,6 +3273,22 @@ def home_expenses_entry():
                 st.session_state.username
             )
         )
+        # Log activity
+        cur.execute(
+            """
+            INSERT INTO activity_log
+            (event_type, reference_id, role, username, message)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "HOME_EXPENSE",
+                cur.lastrowid,
+                st.session_state.role,
+                st.session_state.username,
+                f"Home expense: {category} - KES {int(amount)}"
+            )
+        )
+
         conn.commit()
         conn.close()
         st.success("✅ Home expense recorded")
