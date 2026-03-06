@@ -2,6 +2,7 @@ from db_config import DB_PATH
 import streamlit as st
 import sqlite3
 from security import verify_password
+from ui_feedback import show_success_summary
 
 # ============================================
 # PAGE CONFIG - MUST BE FIRST
@@ -25,7 +26,9 @@ st.markdown("""
     
     /* Center the login container */
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background:
+            radial-gradient(900px circle at 8% -10%, rgba(196,18,36,0.12), transparent 45%),
+            #f6f7fb;
     }
     
     /* Login card styling */
@@ -41,7 +44,7 @@ st.markdown("""
     /* Title styling */
     .login-title {
         text-align: center;
-        color: #2c3e50;
+        color: #0b0b0f;
         font-size: 2.5rem;
         font-weight: 700;
         margin-bottom: 0.5rem;
@@ -49,7 +52,7 @@ st.markdown("""
     
     .login-subtitle {
         text-align: center;
-        color: #7f8c8d;
+        color: #5d6573;
         font-size: 1rem;
         margin-bottom: 2rem;
     }
@@ -64,14 +67,14 @@ st.markdown("""
     }
     
     .stTextInput > div > div > input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        border-color: #c41224;
+        box-shadow: 0 0 0 3px rgba(196, 18, 36, 0.14);
     }
     
     /* Button styling */
     .stButton > button {
         width: 100%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #0b0b0f;
         color: white;
         border: none;
         border-radius: 10px;
@@ -85,7 +88,8 @@ st.markdown("""
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        background: #9f0918;
+        box-shadow: 0 10px 25px rgba(196, 18, 36, 0.3);
     }
     
     /* Icon styling */
@@ -122,7 +126,7 @@ with col2:
             label_visibility="visible"
         )
         
-        submit = st.form_submit_button("🔓 Sign In")
+        submit = st.form_submit_button("Sign In")
         
         if submit:
             if not username or not password:
@@ -148,9 +152,14 @@ with col2:
                         st.session_state.role = role
                         st.session_state.logged_in = True
                         
-                        st.success(f"✅ Welcome back, {username}!")
-                        st.balloons()
-                        
+                        show_success_summary(
+                            f"Welcome back, {username}.",
+                            [
+                                ("User", username),
+                                ("Role", role),
+                            ],
+                        )
+                                                
                         # Redirect based on role
                         if role == "Admin":
                             st.info("🔄 Redirecting to Admin Dashboard...")

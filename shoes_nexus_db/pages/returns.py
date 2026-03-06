@@ -4,12 +4,16 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import time
+from theme_admin import apply_admin_theme
+from ui_feedback import show_success_summary
 
 # ============================================
 # DATABASE CONNECTION
 # ============================================
 def get_db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 # ============================================
 # HELPER: SAFE INT
@@ -46,6 +50,16 @@ def sync_product_stock(cur, product_id):
 # PAGE SETUP
 # ============================================
 st.set_page_config(page_title="Returns & Exchanges", layout="wide")
+apply_admin_theme(
+    "Returns and Exchanges",
+    "Review, approve, and track return and exchange requests.",
+)
+
+if not st.session_state.get("logged_in", False):
+    st.warning("Session expired. Please log in again.")
+    if st.button("Go to Login", key="returns_go_login"):
+        st.switch_page("app.py")
+    st.stop()
 
 # ============================================
 # CUSTOM CSS
@@ -53,12 +67,13 @@ st.set_page_config(page_title="Returns & Exchanges", layout="wide")
 st.markdown("""
     <style>
     .return-header {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        background: linear-gradient(135deg, #ffffff 0%, #f7f7f9 100%);
         padding: 2rem;
         border-radius: 15px;
         margin-bottom: 2rem;
-        color: white;
+        color: #111111;
         box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        border: 1px solid #d0d5df;
     }
     
     .return-title {
@@ -76,7 +91,7 @@ st.markdown("""
         background: #f8f9fa;
         padding: 1.5rem;
         border-radius: 10px;
-        border-left: 5px solid #f5576c;
+        border-left: 4px solid #e11d2a;
         margin: 1rem 0;
     }
     </style>
@@ -249,10 +264,17 @@ if st.session_state.role == "Cashier":
                     
                     conn.commit()
                     
-                    st.success("✅ Return request submitted successfully!")
-                    st.info("ℹ️ Waiting for manager/admin approval")
-                    st.balloons()
-                    
+                    show_success_summary(
+                        "Return request submitted successfully.",
+                        [
+                            ("Request ID", int(request_id)),
+                            ("Sale ID", int(sale_id)),
+                            ("Size", str(selected_sale["size"])),
+                            ("Quantity", int(return_quantity)),
+                            ("Status", "PENDING"),
+                        ],
+                    )
+                                        
                 except Exception as e:
                     conn.rollback()
                     st.error(f"❌ Error: {e}")
@@ -443,7 +465,13 @@ elif st.session_state.role == "Admin":
                                 )
                             )
                             conn.commit()
-                            st.success("✅ Pending return cancelled.")
+                            show_success_summary(
+                                "Pending return cancelled.",
+                                [
+                                    ("Request ID", int(request_id)),
+                                    ("Status", "CANCELLED"),
+                                ],
+                            )
                             time.sleep(0.5)
                             st.rerun()
                         except Exception as e:
@@ -480,7 +508,13 @@ elif st.session_state.role == "Admin":
                                 )
                             )
                             conn.commit()
-                            st.success("✅ All pending returns for this sale cancelled.")
+                            show_success_summary(
+                                "All pending returns for this sale cancelled.",
+                                [
+                                    ("Sale ID", to_int(row["sale_id"])),
+                                    ("Status", "CANCELLED"),
+                                ],
+                            )
                             time.sleep(0.5)
                             st.rerun()
                         except Exception as e:
@@ -578,8 +612,16 @@ elif st.session_state.role == "Admin":
                         ))
                         
                         conn.commit()
-                        st.success("✅ Return approved!")
-                        st.balloons()
+                        show_success_summary(
+                            "Return approved.",
+                            [
+                                ("Request ID", to_int(request_id)),
+                                ("Sale ID", to_int(row["sale_id"])),
+                                ("Size", str(row["size"])),
+                                ("Quantity", int(return_qty)),
+                                ("Status", "APPROVED"),
+                            ],
+                        )
                         time.sleep(1)
                         st.rerun()
                         

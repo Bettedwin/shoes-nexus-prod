@@ -2,18 +2,32 @@ from db_config import DB_PATH
 import streamlit as st
 import sqlite3
 import pandas as pd
+from theme_admin import apply_admin_theme
 from datetime import date
+from ui_feedback import show_success_summary
 
 # ============================================
 # DATABASE CONNECTION
 # ============================================
 def get_db():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 # ============================================
 # PAGE SETUP
 # ============================================
 st.set_page_config(page_title="Initial Stock Setup", layout="wide")
+apply_admin_theme(
+    "Initial Stock Setup",
+    "Set up products, sizes, and opening stock.",
+)
+
+if not st.session_state.get("logged_in", False):
+    st.warning("Session expired. Please log in again.")
+    if st.button("Go to Login", key="initial_stock_go_login"):
+        st.switch_page("app.py")
+    st.stop()
 
 # ============================================
 # ACCESS CONTROL
@@ -28,12 +42,12 @@ if st.session_state.get("role") not in ["Admin", "Manager"]:
 st.markdown("""
     <style>
     .setup-header {
-        background: linear-gradient(135deg, #56ab2f 0%, #a8e063 100%);
+        background: linear-gradient(135deg, #0b0b0f 0%, #c41224 100%);
         padding: 2rem;
         border-radius: 15px;
         margin-bottom: 2rem;
         color: white;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        box-shadow: 0 10px 30px rgba(11,11,15,0.2);
     }
     
     .setup-title {
@@ -51,7 +65,7 @@ st.markdown("""
         background: #f8f9fa;
         padding: 1.5rem;
         border-radius: 10px;
-        border-left: 5px solid #56ab2f;
+        border-left: 4px solid #e11d2a;
         margin: 1rem 0;
     }
     </style>
@@ -233,9 +247,17 @@ with tab1:
                     
                     conn.commit()
                     
-                    st.success(f"✅ Stock added successfully!")
-                    st.balloons()
-                    
+                    show_success_summary(
+                        "Stock added successfully.",
+                        [
+                            ("Product", selected_product),
+                            ("Size", str(size)),
+                            ("Quantity Added", int(quantity)),
+                            ("Cost per Item (KES)", int(cost_per_item)),
+                            ("New Stock Level", int(new_stock)),
+                        ],
+                    )
+                                        
                     # Show summary
                     st.info(f"""
                     **Stock Entry Summary:**
@@ -254,7 +276,13 @@ with tab1:
                     """, (product_id, size))
                     
                     new_stock = cur.fetchone()[0]
-                    st.success(f"📦 New stock level for Size {size}: **{new_stock} pairs**")
+                    show_success_summary(
+                        "Updated stock level confirmed.",
+                        [
+                            ("Size", str(size)),
+                            ("Current Stock", int(new_stock)),
+                        ],
+                    )
                     
                 except Exception as e:
                     conn.rollback()
