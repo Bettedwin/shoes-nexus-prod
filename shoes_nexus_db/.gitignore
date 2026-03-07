@@ -5,3 +5,5 @@ __pycache__/
 *.db
 backups/
 .streamlit/
+
+!shoes_nexus.db
