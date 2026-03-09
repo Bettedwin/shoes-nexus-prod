@@ -591,6 +591,30 @@ def ensure_stock_take_submission_tables():
     conn.commit()
     conn.close()
 
+def ensure_stock_take_gate_override_table():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stock_take_gate_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_key TEXT NOT NULL,
+            checkpoint_type TEXT,
+            granted_by TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL,
+            UNIQUE(month_key)
+        )
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stock_take_gate_overrides_month_expires "
+        "ON stock_take_gate_overrides(month_key, expires_at)"
+    )
+    conn.commit()
+    conn.close()
+
 def _stock_take_order():
     return ["OPENING", "AUDIT_1", "AUDIT_2", "CLOSING"]
 
@@ -7009,10 +7033,10 @@ def inventory_overview(role):
                     .reset_index(drop=True)
                 )
 
-                with st.expander(f"Model: {model_label}", expanded=False):
-                    st.caption(f"Colors available: {len(color_rows)}")
-
-                    _render_color_rows(style_df, color_rows, brand, model, role)
+                st.markdown(f"**Model: {model_label}**")
+                st.caption(f"Colors available: {len(color_rows)}")
+                _render_color_rows(style_df, color_rows, brand, model, role)
+                st.markdown("---")
 
 #INVENTORY VALUATION (CLOSING STOCK @ COST)
 def inventory_valuation_summary():
@@ -8690,6 +8714,28 @@ def render_stock_take_compliance_gate(role_key):
     )
 
     required_cp, _ = get_required_checkpoint(conn, month_key)
+    # Admin-only emergency bypass: one use per month, max +1 day.
+    active_override = pd.read_sql(
+        """
+        SELECT id, month_key, checkpoint_type, granted_by, reason, granted_at, expires_at
+        FROM stock_take_gate_overrides
+        WHERE month_key = ?
+          AND expires_at > CURRENT_TIMESTAMP
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        conn,
+        params=(month_key,),
+    )
+    if not active_override.empty:
+        row = active_override.iloc[0]
+        st.warning(
+            f"Emergency override is active until {row['expires_at']} "
+            f"(granted by {row['granted_by']} for {row['checkpoint_type'] or 'N/A'})."
+        )
+        conn.close()
+        return True
+
     if not required_cp:
         conn.close()
         return True
@@ -8727,6 +8773,79 @@ def render_stock_take_compliance_gate(role_key):
             st.error("Access blocked: overdue stock take checkpoints must be completed first.")
         else:
             st.warning("Access blocked: pending stock take checkpoints must be completed first.")
+
+        if str(role_key).lower() == "admin":
+            override_used = pd.read_sql(
+                """
+                SELECT id, checkpoint_type, granted_by, granted_at, expires_at
+                FROM stock_take_gate_overrides
+                WHERE month_key = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                conn,
+                params=(month_key,),
+            )
+            with st.expander("Admin Emergency Override (One-time, 24 hours)", expanded=False):
+                if not override_used.empty:
+                    used = override_used.iloc[0]
+                    st.info(
+                        f"Override already used for {month_key} by {used['granted_by']} "
+                        f"at {used['granted_at']}. Expires at {used['expires_at']}."
+                    )
+                else:
+                    st.caption(
+                        "Use only for a production incident. Grants access for 24 hours and can be used only once this month."
+                    )
+                    ov_reason = st.text_area(
+                        "Override reason (required)",
+                        key=f"{role_key}_stock_override_reason",
+                        placeholder="Incident summary and why stock take completion is delayed.",
+                    )
+                    ov_confirm = st.checkbox(
+                        "I confirm this is an emergency production incident",
+                        key=f"{role_key}_stock_override_confirm",
+                    )
+                    if st.button("Grant 24h Emergency Override", key=f"{role_key}_stock_override_grant"):
+                        if not str(ov_reason or "").strip():
+                            st.error("Override reason is required.")
+                        elif not ov_confirm:
+                            st.error("Confirmation is required.")
+                        else:
+                            cur = conn.cursor()
+                            cur.execute(
+                                """
+                                INSERT INTO stock_take_gate_overrides
+                                (month_key, checkpoint_type, granted_by, reason, expires_at)
+                                VALUES (?, ?, ?, ?, datetime('now', '+1 day'))
+                                """,
+                                (
+                                    str(month_key),
+                                    str(required_cp),
+                                    str(st.session_state.get("username", "admin")),
+                                    str(ov_reason).strip(),
+                                ),
+                            )
+                            cur.execute(
+                                """
+                                INSERT INTO activity_log
+                                (event_type, reference_id, role, username, message)
+                                VALUES (?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    "STOCK_TAKE_OVERRIDE_GRANTED",
+                                    None,
+                                    "Admin",
+                                    str(st.session_state.get("username", "admin")),
+                                    f"Granted one-time 24h stock take gate override for {month_key} "
+                                    f"(checkpoint {required_cp}). Reason: {str(ov_reason).strip()}",
+                                ),
+                            )
+                            conn.commit()
+                            st.success("Emergency override granted for 24 hours.")
+                            conn.close()
+                            st.rerun()
+
         if st.button("Open Stock Take", key=f"{role_key}_open_stock_take"):
             conn.close()
             st.switch_page("pages/stock_take.py")
@@ -8988,6 +9107,7 @@ def main():
     ensure_opening_inventory_table()
     ensure_monthly_stock_takes_table()
     ensure_stock_take_submission_tables()
+    ensure_stock_take_gate_override_table()
     reset_mistaken_bulk_stock_take_completions()
     ensure_db_indexes()
     backfill_style_catalog(cutover_date="2026-03-01")
