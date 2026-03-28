@@ -2184,12 +2184,29 @@ If it didn’t open, please contact us via WhatsApp.
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full border-2 border-gray-700 bg-gray-900 text-white rounded-lg px-3 py-2 focus:border-red-600 outline-none text-sm mb-3"
               />
+              <button onClick={() => { setView('store'); setFilterCategory('All'); setFilterType('All'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Shop All</button>
               <button onClick={() => { setView('store'); setFilterCategory('Women'); setFilterType('All'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Women</button>
               <button onClick={() => { setView('store'); setFilterCategory('Men'); setFilterType('All'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Men</button>
               <div className="pt-1 text-xs uppercase tracking-wider text-gray-400">Sandals and Slides</div>
               <button onClick={() => { setView('store'); setFilterCategory('Women'); setFilterType('Sandals'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Women</button>
               <button onClick={() => { setView('store'); setFilterCategory('Men'); setFilterType('Sandals'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Men</button>
               <button onClick={() => { setView('store'); setFilterCategory('All'); setFilterType('Sneakers'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Sneakers</button>
+              <button onClick={() => { setView('wishlist'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Wishlist</button>
+              <button onClick={() => { setView('cart'); setMobileMenuOpen(false); }} className="block w-full text-left hover:text-red-500 transition py-2">Cart</button>
+              <button
+                onClick={() => {
+                  if (authUser) {
+                    setView('account');
+                  } else {
+                    setAuthOpen(true);
+                    setAuthMode('login');
+                  }
+                  setMobileMenuOpen(false);
+                }}
+                className="block w-full text-left hover:text-red-500 transition py-2"
+              >
+                {authUser ? 'My Account' : 'Sign In'}
+              </button>
             </div>
           )}
         </div>
