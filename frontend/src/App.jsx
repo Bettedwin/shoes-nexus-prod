@@ -1766,12 +1766,6 @@ If it didn’t open, please contact us via WhatsApp.
             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
             onError={(e) => { e.target.src = '/api/placeholder/400/400'; }}
           />
-          
-          {totalStock < 10 && totalStock > 0 && (
-            <div className="absolute top-3 left-3 bg-orange-500 text-white text-xs px-3 py-1 rounded-full font-semibold animate-pulse">
-              LEAVING SOON
-            </div>
-          )}
 
           <button 
             onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
@@ -1781,12 +1775,6 @@ If it didn’t open, please contact us via WhatsApp.
           >
             <Heart size={18} className={isInWishlist ? 'fill-current' : ''} />
           </button>
-
-          {totalStock < 10 && totalStock > 0 && (
-            <div className="absolute bottom-3 right-3 bg-yellow-500 text-black text-xs px-3 py-1 rounded-full font-semibold">
-              Only {totalStock} left
-            </div>
-          )}
 
           {totalStock === 0 && (
             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
@@ -2377,9 +2365,7 @@ If it didn’t open, please contact us via WhatsApp.
                 {selectedSize && (
                   <div className="mt-3 text-sm text-green-600 font-medium flex items-center space-x-1">
                     <Check size={16} />
-                    <span>
-                      {selectedProduct.sizes.find(s => s.size === selectedSize)?.stock} pairs available
-                    </span>
+                    <span>Size selected and available for order</span>
                   </div>
                 )}
               </div>
